@@ -1,0 +1,180 @@
+import { db, setMeta, getMeta } from './db';
+import type { StoredScrobble, UserInfo } from './types';
+
+const API = 'https://ws.audioscrobbler.com/2.0/';
+export const LASTFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
+
+export class LastfmError extends Error {
+  code?: number;
+  constructor(message: string, code?: number) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function call<T>(params: Record<string, string | number>, apiKey: string, attempt = 0): Promise<T> {
+  const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), api_key: apiKey, format: 'json' });
+  let res: Response;
+  try {
+    res = await fetch(`${API}?${qs}`);
+  } catch (e) {
+    if (attempt < 5) {
+      await sleep(800 * 2 ** attempt);
+      return call(params, apiKey, attempt + 1);
+    }
+    throw new LastfmError('Network error talking to Last.fm');
+  }
+  let body: { error?: number; message?: string } & Record<string, unknown>;
+  try {
+    body = await res.json();
+  } catch {
+    body = {};
+  }
+  if (body.error) {
+    // 29 = rate limit, 8/11/16 = transient backend errors
+    if ([8, 11, 16, 29].includes(body.error) && attempt < 6) {
+      await sleep(1000 * 2 ** attempt);
+      return call(params, apiKey, attempt + 1);
+    }
+    throw new LastfmError(body.message || 'Last.fm error', body.error);
+  }
+  if (!res.ok) {
+    if (attempt < 5) {
+      await sleep(800 * 2 ** attempt);
+      return call(params, apiKey, attempt + 1);
+    }
+    throw new LastfmError(`Last.fm returned ${res.status}`);
+  }
+  return body as T;
+}
+
+interface LfImage {
+  '#text': string;
+  size: string;
+}
+
+export function bestImage(images?: LfImage[]): string | undefined {
+  if (!images?.length) return undefined;
+  const url = images[images.length - 1]['#text'] || images.find((i) => i['#text'])?.['#text'];
+  if (!url || url.includes(LASTFM_PLACEHOLDER)) return undefined;
+  // upgrade to a larger rendition
+  return url.replace(/\/i\/u\/[^/]+\//, '/i/u/600x600/');
+}
+
+export async function fetchUserInfo(user: string, apiKey: string): Promise<UserInfo> {
+  const r = await call<{ user: { name: string; realname: string; playcount: string; registered: { unixtime: string }; image: LfImage[]; url: string } }>(
+    { method: 'user.getinfo', user },
+    apiKey,
+  );
+  const u = r.user;
+  const img = u.image?.[u.image.length - 1]?.['#text'];
+  return {
+    name: u.name,
+    realname: u.realname || undefined,
+    playcount: Number(u.playcount) || 0,
+    registered: Number(u.registered?.unixtime) || 0,
+    image: img || undefined,
+    url: u.url,
+  };
+}
+
+interface RecentTrack {
+  artist: { '#text': string };
+  name: string;
+  album: { '#text': string };
+  image: LfImage[];
+  date?: { uts: string };
+  '@attr'?: { nowplaying?: string };
+}
+
+interface RecentResponse {
+  recenttracks: {
+    track: RecentTrack[] | RecentTrack;
+    '@attr': { totalPages: string; total: string; page: string };
+  };
+}
+
+function parseTracks(r: RecentResponse): StoredScrobble[] {
+  const raw = r.recenttracks.track;
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const out: StoredScrobble[] = [];
+  for (const t of list) {
+    if (t['@attr']?.nowplaying || !t.date) continue;
+    const s: StoredScrobble = {
+      ts: Number(t.date.uts),
+      ar: t.artist?.['#text'] ?? '',
+      tr: t.name ?? '',
+      al: t.album?.['#text'] ?? '',
+    };
+    const img = bestImage(t.image);
+    if (img) s.img = img;
+    out.push(s);
+  }
+  return out;
+}
+
+export interface SyncProgress {
+  phase: 'starting' | 'fetching' | 'saving' | 'done' | 'error';
+  done: number;
+  total: number;
+  message?: string;
+}
+
+/**
+ * Pulls the scrobble history into IndexedDB. If there's existing data it only fetches
+ * scrobbles newer than the last stored one.
+ */
+export async function syncScrobbles(user: string, apiKey: string, onProgress: (p: SyncProgress) => void, signal?: { cancelled: boolean }) {
+  onProgress({ phase: 'starting', done: 0, total: 0 });
+  const storedUser = await getMeta<string>('syncedUser');
+  if (storedUser && storedUser.toLowerCase() !== user.toLowerCase()) {
+    await db.scrobbles.clear();
+  }
+  await setMeta('syncedUser', user);
+
+  // Pages are fetched in parallel, so an interrupted sync leaves gaps. Roll it back.
+  const pending = await getMeta<{ from: number }>('syncPending');
+  if (pending) {
+    await db.scrobbles.where('ts').aboveOrEqual(pending.from).delete();
+  }
+
+  const last = await db.scrobbles.orderBy('ts').last();
+  const from = last ? last.ts + 1 : 0;
+  await setMeta('syncPending', { from });
+  const to = Math.floor(Date.now() / 1000);
+  const base: Record<string, string | number> = { method: 'user.getrecenttracks', user, limit: 200, to };
+  if (from) base.from = from;
+
+  const first = await call<RecentResponse>({ ...base, page: 1 }, apiKey);
+  const totalPages = Number(first.recenttracks['@attr']?.totalPages) || 0;
+  const total = Number(first.recenttracks['@attr']?.total) || 0;
+  let done = 0;
+  const save = async (rows: StoredScrobble[]) => {
+    if (rows.length) await db.scrobbles.bulkAdd(rows);
+    done += rows.length;
+    onProgress({ phase: 'fetching', done, total });
+  };
+  await save(parseTracks(first));
+
+  const pages: number[] = [];
+  for (let p = 2; p <= totalPages; p++) pages.push(p);
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < pages.length) {
+      if (signal?.cancelled) return;
+      const page = pages[cursor++];
+      const r = await call<RecentResponse>({ ...base, page }, apiKey);
+      await save(parseTracks(r));
+      await sleep(120); // stay polite (~5 req/s across workers)
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages.length) }, worker));
+  if (signal?.cancelled) return done;
+  await db.meta.delete('syncPending');
+  await setMeta('lastSync', Date.now());
+  onProgress({ phase: 'done', done, total });
+  return done;
+}
