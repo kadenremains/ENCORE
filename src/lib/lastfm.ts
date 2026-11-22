@@ -184,3 +184,21 @@ export async function syncScrobbles(user: string, apiKey: string, onProgress: (p
   onProgress({ phase: 'done', done, total });
   return done;
 }
+
+/** Albums as Last.fm groups them (by album artist), for crediting albums correctly. */
+export async function fetchAlbumArtists(user: string, apiKey: string): Promise<[string, string, number][]> {
+  const out: [string, string, number][] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const r = await call<{ topalbums: { album: { name: string; playcount: string; artist: { name: string } }[] | { name: string; playcount: string; artist: { name: string } }; '@attr': { totalPages: string } } }>(
+      { method: 'user.gettopalbums', user, period: 'overall', limit: 1000, page },
+      apiKey,
+    );
+    const list = r.topalbums.album;
+    for (const a of Array.isArray(list) ? list : list ? [list] : []) out.push([a.name, a.artist?.name ?? '', Number(a.playcount) || 0]);
+    pages = Math.min(60, Number(r.topalbums['@attr']?.totalPages) || 1);
+    page++;
+  } while (page <= pages);
+  return out;
+}

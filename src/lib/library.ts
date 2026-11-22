@@ -24,8 +24,54 @@ export interface Library {
 
 let versionCounter = 1;
 
-export function buildLibrary(rows: StoredScrobble[]): Library {
+/** [album name, album artist, plays] as Last.fm groups albums (user.getTopAlbums). */
+export type AlbumArtistList = [string, string, number][];
+
+/**
+ * Scrobbles only carry the song's artist, but Last.fm credits albums to the *album* artist
+ * (e.g. a compilation, or an album where every song is by a featured artist). Work out, for each
+ * (album, song artist) pair, which album artist Last.fm files it under.
+ */
+function albumArtistResolver(rows: StoredScrobble[], list: AlbumArtistList | undefined) {
+  const resolved = new Map<string, string>();
+  if (!list?.length) return resolved;
+  const byName = new Map<string, { artist: string; plays: number }[]>();
+  for (const [name, artist, plays] of list) {
+    const k = name.toLowerCase();
+    let arr = byName.get(k);
+    if (!arr) byName.set(k, (arr = []));
+    arr.push({ artist, plays });
+  }
+  // which song artists appear on each album name in the scrobbles
+  const songArtists = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    if (!r.al) continue;
+    const k = r.al.toLowerCase();
+    if (!byName.has(k)) continue;
+    let m = songArtists.get(k);
+    if (!m) songArtists.set(k, (m = new Map()));
+    const a = r.ar.toLowerCase();
+    m.set(a, (m.get(a) ?? 0) + 1);
+  }
+  for (const [album, artists] of songArtists) {
+    const cands = byName.get(album)!;
+    const unmatched = cands.filter((c) => !artists.has(c.artist.toLowerCase()));
+    for (const a of artists.keys()) {
+      // the song artist has their own album by this name: it's theirs
+      if (cands.some((c) => c.artist.toLowerCase() === a)) continue;
+      // Last.fm lists every album you've played, so if there's only one album by this name,
+      // these songs are on it (even when its album artist also has songs of their own on it)
+      if (cands.length === 1) resolved.set(`${album}\u0000${a}`, cands[0].artist);
+      // otherwise only when exactly one of the other artists could be the album artist
+      else if (unmatched.length === 1) resolved.set(`${album}\u0000${a}`, unmatched[0].artist);
+    }
+  }
+  return resolved;
+}
+
+export function buildLibrary(rows: StoredScrobble[], albumArtists?: AlbumArtistList): Library {
   rows.sort((a, b) => a.ts - b.ts);
+  const albumArtistOf = albumArtistResolver(rows, albumArtists);
   const n = rows.length;
   const ts = new Float64Array(n);
   const day = new Int32Array(n);
@@ -59,17 +105,34 @@ export function buildLibrary(rows: StoredScrobble[]): Library {
       aMap.set(ak, ai);
       artists.push({ name: r.ar });
       aFirst.push(r.ts);
-    } else artists[ai].name = r.ar; // keep most recent casing
+    } else {
+      artists[ai].name = r.ar; // keep most recent casing
+      if (aFirst[ai] === Infinity) aFirst[ai] = r.ts; // was only known as an album artist so far
+    }
     artist[i] = ai;
 
     let ali = -1;
     if (r.al) {
-      const k = ak + '\u0000' + r.al.toLowerCase();
+      const alk = r.al.toLowerCase();
+      // credit the album to its album artist when Last.fm files it under someone else
+      const albumArtist = albumArtistOf.get(`${alk}\u0000${ak}`);
+      let aai = ai;
+      if (albumArtist) {
+        const aak = albumArtist.toLowerCase();
+        const found = aMap.get(aak);
+        if (found === undefined) {
+          aai = artists.length;
+          aMap.set(aak, aai);
+          artists.push({ name: albumArtist });
+          aFirst.push(Infinity); // no scrobbles of their own (yet)
+        } else aai = found;
+      }
+      const k = artists[aai].name.toLowerCase() + '\u0000' + alk;
       let x = alMap.get(k);
       if (x === undefined) {
         x = albums.length;
         alMap.set(k, x);
-        albums.push({ name: r.al, artist: ai });
+        albums.push({ name: r.al, artist: aai });
         alFirst.push(r.ts);
       } else albums[x].name = r.al;
       if (r.img) albums[x].img = r.img;

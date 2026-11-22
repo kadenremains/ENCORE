@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { buildLibrary, type Library } from './lib/library';
-import { db, getStoredUser, setMeta } from './lib/db';
-import { fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
+import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
+import { db, getMeta, getStoredUser, setMeta } from './lib/db';
+import { fetchAlbumArtists, fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
@@ -104,8 +104,8 @@ function installHints(lib: Library) {
 }
 
 async function loadLibraryFromDb(): Promise<Library> {
-  const rows = await db.scrobbles.toArray();
-  const lib = buildLibrary(rows);
+  const [rows, albumArtists] = await Promise.all([db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists')]);
+  const lib = buildLibrary(rows, albumArtists);
   installHints(lib);
   return lib;
 }
@@ -204,7 +204,20 @@ export const useApp = create<AppState>((set, get) => ({
           loadLibraryFromDb().then((lib) => set({ lib }));
         }
       });
-      if (added > 0 || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
+      // album artists (Last.fm's grouping) - refresh after new scrobbles, at most every 6 hours
+      let albumsChanged = false;
+      try {
+        const at = (await getMeta<number>('albumArtistsAt')) ?? 0;
+        if (!at || (added > 0 && Date.now() - at > 6 * 3600_000) || Date.now() - at > 3 * 86400_000) {
+          const list = await fetchAlbumArtists(username, apiKey);
+          await setMeta('albumArtists', list);
+          await setMeta('albumArtistsAt', Date.now());
+          albumsChanged = true;
+        }
+      } catch {
+        /* not critical: albums fall back to the song artist */
+      }
+      if (added > 0 || albumsChanged || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
       set({ sync: { phase: 'done', done: added, total: added } });
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });

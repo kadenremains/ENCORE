@@ -101,7 +101,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
               {albumIdx >= 0 && (
                 <>
                   {' '}
-                  · from <a href={entityPath('album', lib.albums[albumIdx].name, artistName)}>{lib.albums[albumIdx].name}</a>
+                  · from <a href={entityPath('album', lib.albums[albumIdx].name, lib.artists[lib.albums[albumIdx].artist].name)}>{lib.albums[albumIdx].name}</a>
                 </>
               )}
             </div>
@@ -131,6 +131,8 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       <Panel title="All time, month by month" right={<span className="muted small">shaded: {label}</span>}>
         <AreaSpark data={at.months} highlight={range} />
       </Panel>
+
+      {kind === 'artist' && <CreditedAlbums artistIdx={idx} name={name} />}
 
       {er.plays > 0 && (
         <>
@@ -173,5 +175,27 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
 
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>
+  );
+}
+
+/** Albums filed under this artist (as album artist), e.g. compilations or albums sung by others. */
+function CreditedAlbums({ artistIdx, name }: { artistIdx: number; name: string }) {
+  const { lib, stats, label } = useRangeStats();
+  const rows = stats.ranking('album').filter((r) => lib.albums[r.idx].artist === artistIdx);
+  // only worth a section when someone else sings on them
+  const byOthers = rows.filter((r) => {
+    for (const t of lib.tracks) if (t.album === r.idx && t.artist !== artistIdx) return true;
+    return false;
+  });
+  if (!byOthers.length) return null;
+  const max = byOthers[0].count;
+  const items: LedgerItem[] = byOthers.slice(0, 20).map((r, i) => {
+    const it = stats.item('album', r, i + 1);
+    return { key: `al${r.idx}`, rank: i + 1, kind: 'album', name: it.name, artist: it.artist, meta: `album artist · ${label}`, value: r.count, frac: r.count / max, href: entityPath('album', it.name, it.artist) };
+  });
+  return (
+    <Panel title={`Albums credited to ${name}`} right={<span className="muted small">songs on these may be by other artists</span>}>
+      <Ledger compact items={items} />
+    </Panel>
   );
 }
