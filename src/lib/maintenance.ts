@@ -1,5 +1,5 @@
 import { db } from './db';
-import { shrinkDataUrl, shrinkStoredOverrides } from './images';
+import { embedLinkedOverrides, shrinkDataUrl, shrinkStoredOverrides } from './images';
 import { localChanged } from './changes';
 import type { Project } from '../editor/model';
 
@@ -26,7 +26,18 @@ const DONE = 'sw.maint.shrink.v1';
  * One-time pass over everything saved before uploads were compressed: shrinks big pictures
  * inside wrappeds and custom images so they're light and sync quickly.
  */
+const EMBED_DONE = 'sw.maint.embed.v1';
+
 export async function runMaintenance() {
+  // custom pictures that are links to other sites -> keep our own copy (fixes exports + sync)
+  try {
+    if (!localStorage.getItem(EMBED_DONE)) {
+      await embedLinkedOverrides();
+      localStorage.setItem(EMBED_DONE, String(Date.now()));
+    }
+  } catch {
+    /* try again next launch */
+  }
   try {
     if (localStorage.getItem(DONE)) return;
   } catch {

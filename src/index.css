@@ -3170,3 +3170,7 @@ a.hl:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.warn-text {
+  color: #e6c36a;
+  line-height: 1.45;
+}

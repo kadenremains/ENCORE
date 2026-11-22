@@ -30,7 +30,8 @@ export async function renderNodeToBlob(node: HTMLElement, w: number, h: number, 
   await waitForImages(node);
   if (!fontCss) fontCss = getFontEmbedCSS(node).catch(() => '');
   const fontEmbedCSS = await fontCss;
-  const opts = { width: w, height: h, pixelRatio, fontEmbedCSS, cacheBust: false, style: { transform: 'none', left: '0', top: '0' } };
+  // includeQueryParams: links that differ only after "?" (e.g. Google image links) are different pictures
+  const opts = { width: w, height: h, pixelRatio, fontEmbedCSS, cacheBust: false, includeQueryParams: true, style: { transform: 'none', left: '0', top: '0' } };
   // Safari sometimes drops images on the first pass; render twice there.
   if (isSafari) await toCanvas(node, opts).catch(() => {});
   const canvas = await toCanvas(node, opts);

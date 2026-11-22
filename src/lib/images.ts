@@ -379,6 +379,53 @@ export async function shrinkDataUrl(src: string, over = 900_000): Promise<string
   }
 }
 
+/**
+ * Download a picture from a link and keep our own copy (as a data URL), so exports and other
+ * devices don't depend on the original site. Returns null if the site doesn't allow it.
+ */
+export async function urlToDataUrl(url: string): Promise<{ src: string; width: number; height: number } | null> {
+  try {
+    const r = await fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    if (!blob.type.startsWith('image/')) return null;
+    const obj = URL.createObjectURL(blob);
+    try {
+      const dims = await new Promise<{ width: number; height: number }>((res, rej) => {
+        const i = new Image();
+        i.onload = () => res({ width: i.naturalWidth, height: i.naturalHeight });
+        i.onerror = rej;
+        i.src = obj;
+      });
+      const src = await shrinkImage(obj, { maybeAlpha: blob.type === 'image/png' || blob.type === 'image/webp' || blob.type === 'image/gif' });
+      return { src, ...dims };
+    } finally {
+      URL.revokeObjectURL(obj);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** One-time: replace custom pictures that point at other websites with our own saved copy. */
+export async function embedLinkedOverrides(): Promise<number> {
+  let changed = 0;
+  for (const o of await db.overrides.toArray()) {
+    if (!/^https?:/.test(o.src)) continue;
+    const got = await urlToDataUrl(o.src);
+    if (!got) continue;
+    const next = { ...o, src: got.src, updated: Date.now() };
+    overrides.set(o.key, next);
+    await db.overrides.put(next);
+    changed++;
+  }
+  if (changed) {
+    emit();
+    localChanged();
+  }
+  return changed;
+}
+
 /** One-time cleanup: shrink oversized custom pictures saved before uploads were compressed. */
 export async function shrinkStoredOverrides(): Promise<number> {
   let changed = 0;

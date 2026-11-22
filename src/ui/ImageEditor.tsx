@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { entityKey } from '../lib/db';
-import { currentImage, fileToDataUrl, getOverride, removeOverride, setOverride, useImagesVersion } from '../lib/images';
+import { currentImage, fileToDataUrl, getOverride, removeOverride, setOverride, urlToDataUrl, useImagesVersion } from '../lib/images';
 import type { EntityKind } from '../lib/types';
 import { Field, Slider } from './controls';
 
@@ -22,6 +22,8 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
   const [y, setY] = useState(existing?.y ?? 50);
   const [url, setUrl] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [linkNote, setLinkNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [fetching, setFetching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const shown = src || (auto && !auto.custom ? auto.src : '');
@@ -125,16 +127,38 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
                 <input className="text-input" value={url} placeholder="https://…" onChange={(e) => setUrl(e.target.value)} />
                 <button
                   className="btn"
-                  disabled={!url}
-                  onClick={() => {
-                    setSrc(url.trim());
-                    setUrl('');
+                  disabled={!url || fetching}
+                  onClick={async () => {
+                    const link = url.trim();
+                    setFetching(true);
+                    setLinkNote(null);
+                    // keep our own copy so exports + other devices don't depend on that website
+                    const got = await urlToDataUrl(link);
+                    setFetching(false);
+                    if (got) {
+                      setSrc(got.src);
+                      setZoom(1);
+                      setX(50);
+                      setY(50);
+                      setUrl('');
+                      const small = Math.min(got.width, got.height);
+                      setLinkNote(
+                        small < 700
+                          ? { text: `Saved, but it's only ${got.width}×${got.height}, so it may look soft in exports. On Google Images, open the picture and use “Copy image address” on the full-size version.`, bad: true }
+                          : { text: `Saved a copy (${got.width}×${got.height}).` },
+                      );
+                    } else {
+                      setSrc(link);
+                      setUrl('');
+                      setLinkNote({ text: "That site doesn't allow copying its pictures, so this may not show up in exports. Saving the picture and uploading it works every time.", bad: true });
+                    }
                   }}
                 >
-                  Use
+                  {fetching ? '…' : 'Use'}
                 </button>
               </div>
             </Field>
+            {linkNote && <p className={`small ${linkNote.bad ? 'warn-text' : 'muted'}`}>{linkNote.text}</p>}
             {editingAuto && <p className="muted small">Adjusting the automatic image. Saving keeps your crop.</p>}
             <Field label="Zoom">
               <Slider value={zoom} min={1} max={4} step={0.01} onChange={setZoom} />
@@ -145,7 +169,7 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
             <Field label="Vertical focus">
               <Slider value={y} min={0} max={100} onChange={setY} suffix="%" />
             </Field>
-            <p className="muted small">Tip: drag the image to reposition it. Pasted URLs must allow cross-origin access to show up in exports, so uploading is safest.</p>
+            <p className="muted small">Tip: drag the image to reposition it.</p>
             <div className="row gap end">
               {existing && (
                 <button
