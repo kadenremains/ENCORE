@@ -1,5 +1,6 @@
 import { db, setMeta, getMeta } from './db';
 import type { StoredScrobble, UserInfo } from './types';
+import { API_URL } from '../config';
 
 const API = 'https://ws.audioscrobbler.com/2.0/';
 export const LASTFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -15,10 +16,12 @@ export class LastfmError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function call<T>(params: Record<string, string | number>, apiKey: string, attempt = 0): Promise<T> {
-  const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), api_key: apiKey, format: 'json' });
+  // no key of our own -> go through Encore's relay, which adds the key server-side
+  const relay = !apiKey && !!API_URL;
+  const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), ...(relay ? {} : { api_key: apiKey }), format: 'json' });
   let res: Response;
   try {
-    res = await fetch(`${API}?${qs}`);
+    res = await fetch(`${relay ? `${API_URL}/lastfm` : API}?${qs}`);
   } catch (e) {
     if (attempt < 5) {
       await sleep(800 * 2 ** attempt);
@@ -26,19 +29,22 @@ async function call<T>(params: Record<string, string | number>, apiKey: string, 
     }
     throw new LastfmError('Network error talking to Last.fm');
   }
-  let body: { error?: number; message?: string } & Record<string, unknown>;
+  let body: { error?: number | string; message?: string; code?: string } & Record<string, unknown>;
   try {
     body = await res.json();
   } catch {
     body = {};
   }
+  if (typeof body.error === 'string') {
+    throw new LastfmError(body.code === 'NO_KEY' ? "This site isn't set up with a shared Last.fm key yet. Use your own API key below." : body.error);
+  }
   if (body.error) {
     // 29 = rate limit, 8/11/16 = transient backend errors
-    if ([8, 11, 16, 29].includes(body.error) && attempt < 6) {
+    if (typeof body.error === 'number' && [8, 11, 16, 29].includes(body.error) && attempt < 6) {
       await sleep(1000 * 2 ** attempt);
       return call(params, apiKey, attempt + 1);
     }
-    throw new LastfmError(body.message || 'Last.fm error', body.error);
+    throw new LastfmError(body.message || 'Last.fm error', typeof body.error === 'number' ? body.error : undefined);
   }
   if (!res.ok) {
     if (attempt < 5) {

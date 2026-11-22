@@ -33,6 +33,16 @@ The date range and comparison mode are shared across every page and remembered.
 
 Your history, images and designs stay in your browser.
 
+## Backend (optional sync)
+
+`worker/` is a Cloudflare Worker + D1 database at `https://encore-api.kadenremains.workers.dev`:
+
+- **Sign in with Last.fm.** No passwords; your Last.fm account is your login.
+- **Sync** of wrappeds, custom images and settings across devices (last-write-wins, deletions included).
+- **Last.fm relay.** Visitors don't need their own API key, and the key never ships in the site's code.
+
+The Last.fm key/secret live in the database (set through a one-time `/setup` link) or as Worker secrets `LASTFM_API_KEY` / `LASTFM_SECRET`. Deploy with `cd worker && npx wrangler deploy`.
+
 ## Development
 
 ```bash

@@ -11,6 +11,42 @@ import { EntityView } from './views/stats/EntityView';
 import { Listening } from './views/stats/Listening';
 import { Records } from './views/stats/Records';
 import { Create } from './views/Create';
+import { FirstSync } from './views/FirstSync';
+import { initCloud } from './lib/cloud';
+import { useEditor } from './editor/editorStore';
+import type { CompareMode } from './lib/range';
+import type { RangeSpec } from './lib/types';
+
+function startCloud() {
+  initCloud({
+    getSettings: () => {
+      const { exploreRange, compare } = useApp.getState();
+      let milestones: unknown = null;
+      try {
+        milestones = JSON.parse(localStorage.getItem('sw.milestones') || 'null');
+      } catch {
+        /* ignore */
+      }
+      return { range: exploreRange, compare, milestones };
+    },
+    applySettings: (raw) => {
+      const d = raw as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown };
+      try {
+        if (d.range) localStorage.setItem('sw.range', JSON.stringify(d.range));
+        if (d.compare) localStorage.setItem('sw.compare', d.compare);
+        if (d.milestones) localStorage.setItem('sw.milestones', JSON.stringify(d.milestones));
+      } catch {
+        /* private mode */
+      }
+      useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });
+    },
+    onProjectChanged: (p, id) => {
+      const ed = useEditor.getState();
+      if (ed.project?.id !== id) return;
+      if (p && p.updated > ed.project.updated) ed.load(p);
+    },
+  });
+}
 
 export default function App() {
   const view = useApp((s) => s.view);
@@ -18,8 +54,10 @@ export default function App() {
   const route = useRoute();
 
   useEffect(() => {
-    init();
+    init().then(startCloud);
   }, [init]);
+  const lib = useApp((s) => s.lib);
+  const demo = useApp((s) => s.demo);
 
   if (view === 'loading')
     return (
@@ -28,6 +66,7 @@ export default function App() {
       </div>
     );
   if (view === 'onboard') return <Onboard />;
+  if (!demo && lib && lib.n === 0) return <FirstSync />;
   if (route.name === 'edit') return <Editor id={route.id} />;
 
   let page;

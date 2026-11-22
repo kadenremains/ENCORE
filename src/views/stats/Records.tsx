@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { bumpSettings } from '../../lib/changes';
 import { useApp } from '../../store';
 import { getStats, milestones, type MilestoneStep } from '../../lib/library';
 import { Panel, fmtDate, fmtDay } from '../../ui/charts';
@@ -174,6 +175,7 @@ function Milestones() {
     } catch {
       /* private mode */
     }
+    bumpSettings();
   };
   const topArtists = useMemo(() => getStats(lib, { from: 0, to: Infinity }).ranking('artist').slice(0, 100), [lib]);
   const artistIdx = prefs.artist ? (lib.keys.artist.get(prefs.artist.toLowerCase()) ?? -1) : -1;

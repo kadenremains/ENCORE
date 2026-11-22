@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { db, entityKey, type ImageOverride } from './db';
 import type { EntityKind } from './types';
+import { clearTombstone, localChanged, markDeleted } from './changes';
 
 /* ---------------- in-memory state + subscriptions ---------------- */
 
@@ -43,9 +44,29 @@ export async function setOverride(o: Omit<ImageOverride, 'updated'>) {
   overrides.set(o.key, full);
   emit();
   await db.overrides.put(full);
+  clearTombstone('image', o.key);
+  localChanged();
 }
 
 export async function removeOverride(key: string) {
+  overrides.delete(key);
+  emit();
+  await db.overrides.delete(key);
+  markDeleted('image', key);
+}
+
+/** Apply an image change that came from another device (keeps its timestamp). */
+export async function applyRemoteOverride(o: ImageOverride) {
+  const local = overrides.get(o.key);
+  if (local && local.updated >= o.updated) return;
+  overrides.set(o.key, o);
+  emit();
+  await db.overrides.put(o);
+}
+
+export async function applyRemoteRemoval(key: string, updated: number) {
+  const local = overrides.get(key);
+  if (!local || local.updated > updated) return;
   overrides.delete(key);
   emit();
   await db.overrides.delete(key);

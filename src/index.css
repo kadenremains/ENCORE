@@ -3063,3 +3063,67 @@ a.hl:hover {
   margin: -4px 0 12px;
   color: var(--muted);
 }
+.first-sync-bar {
+  height: 2px;
+  background: var(--line-2);
+  position: relative;
+  margin-top: 10px;
+}
+.first-sync-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--text);
+  transition: width 0.3s;
+}
+.onboard-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 6px 0;
+}
+.onboard-or::before,
+.onboard-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line-2);
+}
+.menu-section {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--soft);
+  line-height: 1.5;
+}
+.menu-section b {
+  color: var(--text);
+  font-weight: 500;
+}
+.cloud-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--muted);
+  margin-right: 6px;
+}
+.cloud-dot.ok {
+  background: #8fd19e;
+}
+.cloud-dot.busy {
+  background: var(--text);
+  animation: pulse 1s infinite alternate;
+}
+.cloud-dot.err {
+  background: #d06a6a;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.3;
+  }
+}

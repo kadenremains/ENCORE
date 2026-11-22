@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '../lib/db';
+import { localChanged } from '../lib/changes';
 import { makeBlock, uid, type Block, type BlockType, type Project, type Slide } from './model';
 
 interface EditorState {
@@ -31,7 +32,10 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleSave(p: Project) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    db.projects.put(p).catch((e) => console.error('save failed', e));
+    db.projects
+      .put(p)
+      .then(() => localChanged())
+      .catch((e) => console.error('save failed', e));
   }, 400);
 }
 
@@ -50,7 +54,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const p = get().project;
     if (p) {
       clearTimeout(saveTimer);
-      db.projects.put(p);
+      db.projects.put(p).then(() => localChanged());
     }
     set({ project: null, selectedId: null });
   },

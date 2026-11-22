@@ -6,6 +6,9 @@ import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
 import type { CompareMode } from './lib/range';
+import { consumeAuthRedirect } from './lib/cloud';
+import { bumpSettings } from './lib/changes';
+import { API_URL } from './config';
 
 function loadJSON<T>(k: string, fallback: T): T {
   try {
@@ -44,6 +47,7 @@ interface AppState {
   lib: Library | null;
   sync: SyncProgress | null;
   syncError: string | null;
+  authError: string | null;
   exploreRange: RangeSpec;
   compare: CompareMode;
   setView: (v: View) => void;
@@ -113,6 +117,7 @@ export const useApp = create<AppState>((set, get) => ({
   lib: null,
   sync: null,
   syncError: null,
+  authError: null,
   exploreRange: loadJSON<RangeSpec>('sw.range', { preset: 'this-year' }),
   compare: (LS.get('sw.compare') as CompareMode) || 'previous',
 
@@ -120,19 +125,36 @@ export const useApp = create<AppState>((set, get) => ({
   setExploreRange: (exploreRange) => {
     LS.set('sw.range', JSON.stringify(exploreRange));
     set({ exploreRange });
+    bumpSettings();
   },
   setCompare: (compare) => {
     LS.set('sw.compare', compare);
     set({ compare });
+    bumpSettings();
   },
 
   init: async () => {
+    // back from "Sign in with Last.fm"?
+    const auth = consumeAuthRedirect();
+    if (auth?.error) set({ authError: auth.error });
+    if (auth?.user) {
+      const cur = get().username;
+      if (get().demo || !cur || cur.toLowerCase() !== auth.user.toLowerCase()) {
+        if (get().demo) {
+          await db.scrobbles.clear();
+          await db.meta.clear();
+        }
+        LS.set('sw.username', auth.user);
+        LS.set('sw.demo', '0');
+        set({ username: auth.user, demo: false });
+      }
+    }
     await loadImageState();
     const { username, demo } = get();
     if (!username && !demo) return set({ view: 'onboard' });
     const user = (await getStoredUser()) ?? null;
     const lib = await loadLibraryFromDb();
-    set({ user, lib, view: lib.n ? 'app' : 'onboard' });
+    set({ user, lib, view: 'app' });
     if (!demo && username) get().runSync();
   },
 
@@ -161,7 +183,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   runSync: async () => {
     const { username, apiKey, sync, demo } = get();
-    if (demo || !username || !apiKey) return;
+    if (demo || !username || (!apiKey && !API_URL)) return;
     if (sync && sync.phase !== 'done' && sync.phase !== 'error') return;
     set({ syncError: null });
     try {

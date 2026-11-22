@@ -5,6 +5,7 @@ import { newProject, TEMPLATES, THEMES, FORMATS, type Project } from '../editor/
 import { SlideCanvas, backgroundCss } from '../render/SlideCanvas';
 import { navigate } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
+import { localChanged, markDeleted } from '../lib/changes';
 
 export function Create() {
   const exploreRange = useApp((s) => s.exploreRange);
@@ -14,12 +15,16 @@ export function Create() {
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
-    db.projects.orderBy('updated').reverse().toArray().then(setProjects);
+    const load = () => db.projects.orderBy('updated').reverse().toArray().then(setProjects);
+    load();
+    window.addEventListener('sw:remote-change', load);
+    return () => window.removeEventListener('sw:remote-change', load);
   }, []);
 
   const create = async (templateId: string) => {
     const p = newProject(templateId, exploreRange);
     await db.projects.put(p);
+    localChanged();
     navigate({ name: 'edit', id: p.id });
   };
 
@@ -81,6 +86,7 @@ export function Create() {
                     onClick={async () => {
                       const copy = { ...structuredClone(p), id: Math.random().toString(36).slice(2, 10), name: `${p.name} copy`, updated: Date.now(), created: Date.now() };
                       await db.projects.put(copy);
+                      localChanged();
                       setProjects((ps) => [copy, ...ps]);
                     }}
                   >
@@ -91,6 +97,7 @@ export function Create() {
                     onClick={async () => {
                       if (!confirm(`Delete “${p.name}”?`)) return;
                       await db.projects.delete(p.id);
+                      markDeleted('project', p.id);
                       setProjects((ps) => ps.filter((x) => x.id !== p.id));
                     }}
                   >

@@ -6,6 +6,16 @@ import { RangePicker } from '../ui/controls';
 import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import type { CompareMode } from '../lib/range';
+import { signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
+
+function ago(t: number | null) {
+  if (!t) return 'never';
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(t).toLocaleDateString();
+}
 
 const TABS: { label: string; short: string; route: Route; match: (r: Route) => boolean; icon: string }[] = [
   { label: 'Overview', short: 'Overview', route: { name: 'overview' }, match: (r) => r.name === 'overview', icon: '◐' },
@@ -23,6 +33,8 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
   const { user, username, demo, disconnect, exploreRange, setExploreRange, compare, setCompare } = useApp();
   const { label } = useRangeStats();
   const [menu, setMenu] = useState(false);
+  const cloud = useCloud();
+  const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' ? 'err' : 'ok') : '';
   const isChartTab = (r: Route) => (r.name === 'top' || r.name === 'entity');
 
   return (
@@ -37,10 +49,30 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
             <div className="user-menu">
               <button className="user-btn" onClick={() => setMenu(!menu)}>
                 {user?.image ? <img src={user.image} alt="" /> : <span className="avatar">{(user?.name ?? username ?? '?')[0]?.toUpperCase()}</span>}
+                {dot && <span className={`cloud-dot ${dot}`} title={cloud.status === 'error' ? (cloud.error ?? 'Sync error') : 'Synced'} />}
                 <span className="user-name">{demo ? 'Demo data' : (user?.name ?? username)}</span>
               </button>
               {menu && (
                 <div className="menu" onMouseLeave={() => setMenu(false)} onClick={() => setMenu(false)}>
+                  {cloud.token ? (
+                    <div className="menu-section">
+                      <span className={`cloud-dot ${dot}`} />
+                      Syncing as <b>{cloud.user}</b>
+                      <br />
+                      {cloud.status === 'syncing' ? 'Syncing…' : cloud.status === 'error' ? cloud.error : `Last synced ${ago(cloud.lastSync)}`}
+                      {cloud.error && cloud.status !== 'error' && (
+                        <>
+                          <br />
+                          {cloud.error}
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                  {cloud.token ? (
+                    <button onClick={() => void syncNow()}>Sync now</button>
+                  ) : (
+                    cloud.available?.signIn && <button onClick={startSignIn}>Sign in to sync devices</button>
+                  )}
                   <a href="#/images">Manage images</a>
                   {user?.url && !demo && (
                     <a href={user.url} target="_blank" rel="noreferrer">
@@ -50,13 +82,16 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                   {demo ? (
                     <button onClick={() => disconnect()}>Connect my Last.fm</button>
                   ) : (
-                    <button
-                      onClick={() => {
-                        if (confirm('Disconnect and delete the downloaded history from this browser? (Your wrappeds and images stay.)')) disconnect();
-                      }}
-                    >
-                      Disconnect
-                    </button>
+                    <>
+                      {cloud.token && <button onClick={() => void signOut()}>Turn off sync on this device</button>}
+                      <button
+                        onClick={() => {
+                          if (confirm('Disconnect and delete the downloaded history from this browser? (Your wrappeds and images stay.)')) disconnect();
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </>
                   )}
                 </div>
               )}
