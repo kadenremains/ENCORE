@@ -111,6 +111,7 @@ export default {
           res = json({ error: 'not found' }, 404);
       }
     } catch (e) {
+      console.error(JSON.stringify({ evt: 'error', path: url.pathname, message: (e as Error).message }));
       res = json({ error: (e as Error).message || 'server error' }, 500);
     }
     const headers = new Headers(res.headers);
@@ -348,6 +349,7 @@ async function sync(req: Request, env: Env) {
 
   const s = await env.DB.prepare('SELECT data, updated, srv FROM settings WHERE user = ? AND srv > ?').bind(user, cur.s).first<{ data: string; updated: number; srv: number }>();
 
+  console.log(JSON.stringify({ evt: 'sync', user, pushedProjects: body.projects?.length ?? 0, pushedImages: body.images?.length ?? 0, settings: !!body.settings, rejected, pulledProjects: projects.length, pulledImages: images.length, more }));
   return json({
     now,
     more,

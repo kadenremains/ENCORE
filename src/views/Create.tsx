@@ -6,6 +6,7 @@ import { SlideCanvas, backgroundCss } from '../render/SlideCanvas';
 import { navigate } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
 import { localChanged, markDeleted } from '../lib/changes';
+import { lastPushedAt, startSignIn, useCloud } from '../lib/cloud';
 
 export function Create() {
   const exploreRange = useApp((s) => s.exploreRange);
@@ -13,6 +14,9 @@ export function Create() {
   const username = useApp((s) => s.user?.name ?? s.username);
   const { label } = useRangeStats();
   const [projects, setProjects] = useState<Project[]>([]);
+  const cloud = useCloud();
+  // re-read on every render; useCloud() re-renders this after each sync
+  const pushedAt = lastPushedAt();
 
   useEffect(() => {
     const load = () => db.projects.orderBy('updated').reverse().toArray().then(setProjects);
@@ -77,6 +81,19 @@ export function Create() {
                   </div>
                 </a>
                 <div className="project-name">{p.name}</div>
+                {cloud.token ? (
+                  p.updated > pushedAt ? (
+                    <div className="sync-badge pending">{cloud.status === 'syncing' ? '↻ uploading…' : '● not uploaded yet'}</div>
+                  ) : (
+                    <div className="sync-badge ok">✓ synced</div>
+                  )
+                ) : (
+                  cloud.available?.signIn && (
+                    <button className="sync-badge local" onClick={startSignIn} title="Sign in to back this up and see it on your other devices">
+                      ○ only on this device
+                    </button>
+                  )
+                )}
                 <div className="muted small">
                   {p.slides.length} slide{p.slides.length > 1 ? 's' : ''} · {new Date(p.updated).toLocaleDateString()}
                 </div>

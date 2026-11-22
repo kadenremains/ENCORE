@@ -3148,3 +3148,25 @@ a.hl:hover {
   color: var(--soft);
   line-height: 1.5;
 }
+.sync-badge {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-family: var(--mono);
+}
+.sync-badge.ok {
+  color: #8fd19e;
+}
+.sync-badge.pending {
+  color: #e6c36a;
+}
+.sync-badge.local {
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

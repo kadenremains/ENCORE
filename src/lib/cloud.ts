@@ -391,6 +391,19 @@ async function applyRemote(res: SyncResponse) {
   if (res.projects.length || res.images.length) window.dispatchEvent(new Event('sw:remote-change'));
 }
 
+/** Local edits newer than this haven't been uploaded yet. */
+export function lastPushedAt() {
+  return Number(LS.get(K.pushedAt)) || 0;
+}
+
+/** Re-upload everything on this device and re-download everything from the server. */
+export function forceFullSync() {
+  LS.set(K.pushedAt, null);
+  LS.set(K.cursor, null);
+  useCloud.setState({ dirty: true });
+  return syncNow();
+}
+
 /* ---------------- lifecycle ---------------- */
 
 let started = false;

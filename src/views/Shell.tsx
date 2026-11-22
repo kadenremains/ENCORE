@@ -6,7 +6,7 @@ import { RangePicker } from '../ui/controls';
 import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import type { CompareMode } from '../lib/range';
-import { cancelSignIn, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -70,7 +70,12 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                     </div>
                   ) : null}
                   {cloud.token ? (
-                    <button onClick={() => void syncNow()}>Sync now</button>
+                    <>
+                      <button onClick={() => void syncNow()}>Sync now</button>
+                      <button onClick={() => void forceFullSync()} title="Uploads every wrapped and picture on this device again">
+                        Upload everything again
+                      </button>
+                    </>
                   ) : (
                     cloud.available?.signIn && !cloud.waiting && <button onClick={startSignIn}>Sign in to sync devices</button>
                   )}
