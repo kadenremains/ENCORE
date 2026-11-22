@@ -1,0 +1,177 @@
+import { useState } from 'react';
+import { useRangeStats } from './useRangeStats';
+import { KIND_LABEL, fmtPct, pct } from './helpers';
+import { AreaSpark, BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Move, Panel, WEEKDAYS, fmtDate, fmtDay, fmtHour, type LedgerItem } from '../../ui/charts';
+import { EntityImg, fmtNum } from '../../render/primitives';
+import { entityPath, routePath } from '../../router';
+import { dayToDate, entityAllTime, entityRangeStats, findEntity, getStats, type Ranked } from '../../lib/library';
+import type { EntityKind } from '../../lib/types';
+import { ImageEditor } from '../../ui/ImageEditor';
+
+export function EntityView({ kind, title, artist }: { kind: EntityKind; title: string; artist: string }) {
+  const { lib, stats, prev, label, cmpLabel, range } = useRangeStats();
+  const [editImg, setEditImg] = useState(false);
+  const idx = findEntity(lib, kind, title, artist);
+  if (idx < 0)
+    return (
+      <div className="page">
+        <p className="empty">Couldn't find “{title}” in your history.</p>
+        <a className="more" href={routePath({ name: 'top', kind })}>
+          Back to {KIND_LABEL[kind].many}
+        </a>
+      </div>
+    );
+
+  const name = kind === 'artist' ? lib.artists[idx].name : kind === 'album' ? lib.albums[idx].name : lib.tracks[idx].name;
+  const artistIdx = kind === 'artist' ? idx : kind === 'album' ? lib.albums[idx].artist : lib.tracks[idx].artist;
+  const artistName = lib.artists[artistIdx].name;
+  const albumIdx = kind === 'track' ? lib.tracks[idx].album : -1;
+  const er = entityRangeStats(lib, kind, idx, range);
+  const at = entityAllTime(lib, kind, idx);
+  const rank = stats.rankMap(kind).get(idx)?.rank;
+  const prevRank = prev ? (prev.rankMap(kind).get(idx)?.rank ?? null) : undefined;
+  const prevPlays = prev ? (prev.rankMap(kind).get(idx)?.count ?? 0) : undefined;
+  const allRank = getStats(lib, { from: 0, to: Infinity }).rankMap(kind).get(idx)?.rank;
+
+  // bucket this entity's days into the same buckets as the range timeline
+  const tl = stats.timeline('auto');
+  const buckets = tl.map((t) => ({ ...t, value: 0 }));
+  if (buckets.length) {
+    const starts = buckets.map((b) => b.start.getTime());
+    for (const [d, c] of er.dayCounts) {
+      const t = dayToDate(d).getTime();
+      let lo = 0;
+      let hi = starts.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (starts[mid] <= t) lo = mid;
+        else hi = mid - 1;
+      }
+      buckets[lo].value += c;
+    }
+  }
+
+  const subLedger = (k: EntityKind, rows: Ranked[], total: number): LedgerItem[] => {
+    const max = rows[0]?.count ?? 1;
+    return rows.slice(0, 15).map((r, i) => {
+      const it = stats.item(k, r, i + 1);
+      return {
+        key: `${k}${r.idx}`,
+        rank: i + 1,
+        kind: k,
+        name: it.name,
+        artist: it.artist,
+        meta: `${fmtPct(pct(r.count, total))} of their plays`,
+        value: r.count,
+        frac: r.count / max,
+        href: entityPath(k, it.name, it.artist),
+      };
+    });
+  };
+
+  const heatEnd = stats.lastDay;
+  const heatStart = Math.max(stats.firstDay, heatEnd - 370);
+
+  return (
+    <div className="page">
+      <a className="back" href={routePath({ name: 'top', kind })}>
+        ← {KIND_LABEL[kind].many}
+      </a>
+      <section className="entity-head grain">
+        <div className="hero-art" aria-hidden>
+          <EntityImg kind={kind} name={name} artist={artistName} />
+        </div>
+        <span className="corner tl" />
+        <span className="corner tr" />
+        <span className="corner br" />
+        <span className="corner bl" />
+        <button className="entity-img" onClick={() => setEditImg(true)} title="Change image">
+          <EntityImg kind={kind} name={name} artist={artistName} shape="square" />
+          <span className="top-edit">✎</span>
+        </button>
+        <div className="entity-info">
+          <div className="eyebrow">
+            {KIND_LABEL[kind].one}
+            {rank ? ` · No. ${String(rank).padStart(2, '0')} in ${label}` : ` · not played in ${label}`}
+          </div>
+          <h1 className="entity-name">{name}</h1>
+          {kind !== 'artist' && (
+            <div className="entity-by">
+              by <a href={entityPath('artist', artistName, artistName)}>{artistName}</a>
+              {albumIdx >= 0 && (
+                <>
+                  {' '}
+                  · from <a href={entityPath('album', lib.albums[albumIdx].name, artistName)}>{lib.albums[albumIdx].name}</a>
+                </>
+              )}
+            </div>
+          )}
+          <div className="entity-big">
+            <span className="entity-plays">{fmtNum(er.plays)}</span>
+            <span className="muted">
+              plays in {label} <Delta cur={er.plays} prev={prevPlays} />
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <div className="stats-row">
+        <Kpi value={rank ? `#${rank}` : '—'} label={`Rank in ${label}`} delta={rank ? <Move rank={rank} prev={prevRank} /> : null} sub={cmpLabel || undefined} />
+        <Kpi value={fmtPct(pct(er.plays, stats.total))} label="Of your plays" />
+        <Kpi value={fmtNum(er.days)} label="Days listened" sub={er.streak && er.streak.days > 1 ? `best streak ${er.streak.days} days` : undefined} />
+        <Kpi value={er.busiestDay ? fmtNum(er.busiestDay.count) : '—'} label="Biggest day" sub={er.busiestDay ? fmtDay(er.busiestDay.day, { month: 'short', day: 'numeric', year: 'numeric' }) : undefined} />
+      </div>
+      <div className="stats-row">
+        <Kpi value={fmtNum(at.plays)} label="All-time plays" sub={allRank ? `#${fmtNum(allRank)} all time` : undefined} />
+        <Kpi value={at.first ? fmtDate(at.first, { month: 'short', year: 'numeric' }) : '—'} label="First listen" sub={at.first ? fmtDate(at.first) : undefined} />
+        <Kpi value={at.last ? fmtDate(at.last, { month: 'short', day: 'numeric' }) : '—'} label="Last listen" sub={at.last ? fmtDate(at.last, { year: 'numeric', hour: 'numeric', minute: '2-digit' }) : undefined} />
+        <Kpi value={er.byHour.some(Boolean) ? fmtHour(er.byHour.indexOf(Math.max(...er.byHour))) : '—'} label="Favourite hour" sub={er.byWeekday.some(Boolean) ? `mostly on ${WEEKDAYS[er.byWeekday.indexOf(Math.max(...er.byWeekday))]}` : undefined} />
+      </div>
+
+      <Panel title="All time, month by month" right={<span className="muted small">shaded: {label}</span>}>
+        <AreaSpark data={at.months} highlight={range} />
+      </Panel>
+
+      {er.plays > 0 && (
+        <>
+          <Panel title={`In ${label}`}>
+            <BarChart
+              height={150}
+              data={buckets.map((t, i) => ({ label: t.label, value: t.value, axis: i % Math.max(1, Math.ceil(buckets.length / 8)) === 0 ? t.label : '' }))}
+            />
+          </Panel>
+
+          <div className="grid2">
+            {kind === 'artist' && (
+              <Panel title="Top songs" right={<span className="muted small">{fmtNum(er.tracks.length)} songs</span>}>
+                <Ledger compact items={subLedger('track', er.tracks, er.plays)} />
+              </Panel>
+            )}
+            {kind === 'artist' && (
+              <Panel title="Top albums" right={<span className="muted small">{fmtNum(er.albums.length)} albums</span>}>
+                <Ledger compact items={subLedger('album', er.albums, er.plays)} />
+              </Panel>
+            )}
+            {kind === 'album' && (
+              <Panel title="Songs on this album">
+                <Ledger compact items={subLedger('track', er.tracks, er.plays)} />
+              </Panel>
+            )}
+            <Panel title="Hour of day">
+              <BarChart height={120} data={er.byHour.map((v, h) => ({ label: fmtHour(h), value: v, axis: h % 6 === 0 ? fmtHour(h) : '' }))} />
+            </Panel>
+            <Panel title="Day of week">
+              <BarChart height={120} data={er.byWeekday.map((v, i) => ({ label: WEEKDAYS[i], value: v, axis: WEEKDAYS[i] }))} />
+            </Panel>
+          </div>
+
+          <Panel title="Every day">
+            <CalendarHeatmap counts={er.dayCounts} startDay={heatStart} endDay={heatEnd} />
+          </Panel>
+        </>
+      )}
+
+      {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
+    </div>
+  );
+}

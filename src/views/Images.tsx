@@ -10,7 +10,7 @@ import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
 import { RangePicker } from '../ui/controls';
 
 export function Images() {
-  const { lib, setView, exploreRange, setExploreRange } = useApp();
+  const { lib, exploreRange, setExploreRange } = useApp();
   useImagesVersion();
   const [kind, setKind] = useState<EntityKind>('artist');
   const [q, setQ] = useState('');
@@ -32,14 +32,13 @@ export function Images() {
   } else items = stats.top(kind, 120);
 
   return (
-    <div className="home images-view">
-      <header className="home-header">
-        <button className="btn ghost" onClick={() => setView('home')}>
-          ← Home
-        </button>
-        <div className="brand">Images</div>
-        <span />
-      </header>
+    <div className="page images-view">
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">Artwork for every artist, album and song</div>
+          <h1 className="page-title">Images</h1>
+        </div>
+      </div>
       <section className="block">
         <p className="muted">
           Pictures come from Last.fm, Apple Music and Deezer automatically. Upload your own for anything missing or wrong, and it's used in every wrapped. <b>{custom.size}</b> custom image{custom.size === 1 ? '' : 's'} so far.

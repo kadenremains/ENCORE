@@ -8,10 +8,9 @@ import { SlideCanvas } from '../render/SlideCanvas';
 import { db } from '../lib/db';
 import { deliverFiles, renderNodeToBlob, slugify } from '../lib/export';
 import { rangeLabel, resolveRange } from '../lib/range';
+import { navigate } from '../router';
 
-export function Editor() {
-  const id = useApp((s) => s.editingProjectId);
-  const setView = useApp((s) => s.setView);
+export function Editor({ id }: { id: string }) {
   const lib = useApp((s) => s.lib);
   const { project, load, close, undo, redo, past, future } = useEditor();
   const [zoom, setZoom] = useState<'fit' | number>('fit');
@@ -21,8 +20,8 @@ export function Editor() {
 
   useEffect(() => {
     if (!id) return;
-    db.projects.get(id).then((p) => (p ? load(p) : setView('home')));
-  }, [id, load, setView]);
+    db.projects.get(id).then((p) => (p ? load(p) : navigate({ name: 'create' })));
+  }, [id, load]);
 
   // on phones, jump to the edit tab when something is double-tapped
   useEffect(() => {
@@ -41,10 +40,10 @@ export function Editor() {
           className="btn ghost"
           onClick={() => {
             close();
-            setView('home');
+            navigate({ name: 'create' });
           }}
         >
-          ← Home
+          ← Back
         </button>
         <div className="topbar-title">
           <strong>{project.name}</strong>

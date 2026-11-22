@@ -158,15 +158,22 @@ async function itunes(kind: 'album' | 'track', name: string, artist: string): Pr
   return hit?.artworkUrl100?.replace(/\/\d+x\d+bb\./, '/1200x1200bb.') ?? '';
 }
 
+let lastLookupFailed = false;
 async function firstOf(...fns: (() => Promise<string>)[]) {
+  let failures = 0;
   for (const fn of fns) {
     try {
       const u = await fn();
-      if (u) return u;
+      if (u) {
+        lastLookupFailed = false;
+        return u;
+      }
     } catch {
-      /* try next source */
+      failures++; // network error / rate limit: try next source
     }
   }
+  // only a real "not found" should be remembered; errors get retried next time
+  lastLookupFailed = failures === fns.length;
   return '';
 }
 
@@ -197,17 +204,24 @@ export function lookupImage(kind: EntityKind, name: string, artist: string): Pro
   const p = schedule(async () => {
     let url = '';
     if (kind === 'artist') url = await firstOf(() => deezerArtist(artist));
-    else if (kind === 'album') url = await firstOf(() => itunes('album', name, artist), () => deezerAlbum(name, artist));
+    else if (kind === 'album') url = await firstOf(() => deezerAlbum(name, artist), () => itunes('album', name, artist));
     else {
-      url = await firstOf(() => itunes('track', name, artist), () => deezerTrack(name, artist));
+      url = await firstOf(() => deezerTrack(name, artist), () => itunes('track', name, artist));
       // fall back to the art of the album the song was scrobbled from
       const album = albumOf(name, artist);
       if (!url && album) {
         url = (await lookupAlbumDirect(album, artist)) || '';
       }
     }
-    resolved.set(key, url);
     inflight.delete(key);
+    if (!url && lastLookupFailed) {
+      // transient failure: back off for this session, but don't persist the miss
+      resolved.set(key, '');
+      setTimeout(() => resolved.delete(key), 60_000);
+      emit();
+      return url;
+    }
+    resolved.set(key, url);
     db.imgcache.put({ key, url, fetched: Date.now() }).catch(() => {});
     emit();
     return url;
@@ -224,7 +238,8 @@ async function lookupAlbumDirect(album: string, artist: string): Promise<string>
   const custom = overrides.get(k);
   if (custom) return custom.src;
   if (resolved.has(k)) return resolved.get(k)!;
-  const url = await firstOf(() => itunes('album', album, artist), () => deezerAlbum(album, artist));
+  const url = await firstOf(() => deezerAlbum(album, artist), () => itunes('album', album, artist));
+  if (!url && lastLookupFailed) return '';
   resolved.set(k, url);
   db.imgcache.put({ key: k, url, fetched: Date.now() }).catch(() => {});
   return url;

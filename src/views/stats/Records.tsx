@@ -1,0 +1,161 @@
+import { useMemo } from 'react';
+import { useApp } from '../../store';
+import { getStats, milestones } from '../../lib/library';
+import { Panel, fmtDate, fmtDay } from '../../ui/charts';
+import { EntityImg, fmtNum } from '../../render/primitives';
+import { entityPath } from '../../router';
+
+/** All-time records: ignores the selected range on purpose. */
+export function Records() {
+  const lib = useApp((s) => s.lib)!;
+  const data = useMemo(() => {
+    const all = getStats(lib, { from: 0, to: Infinity });
+    const years = all.timeline('year').map((y) => {
+      const s = getStats(lib, { from: y.start.getTime() / 1000, to: new Date(y.start.getFullYear() + 1, 0, 1).getTime() / 1000 });
+      return {
+        year: y.start.getFullYear(),
+        plays: s.total,
+        artists: s.unique('artist'),
+        newArtists: s.discoveries('artist').length,
+        artist: s.top('artist', 1)[0],
+        album: s.top('album', 1)[0],
+        track: s.top('track', 1)[0],
+      };
+    });
+    return {
+      all,
+      years: years.filter((y) => y.plays > 0).reverse(),
+      day: all.busiestDay(),
+      week: all.biggestPeriod('week'),
+      month: all.biggestPeriod('month'),
+      year: all.biggestPeriod('year'),
+      streak: all.longestStreak(),
+      aStreak: all.artistStreak(),
+      obs: all.obsession(),
+      miles: milestones(lib).reverse(),
+      eras: all.topPerMonth('artist'),
+    };
+  }, [lib]);
+  if (!lib.n) return null;
+  const { all } = data;
+  const maxYear = Math.max(1, ...data.years.map((y) => y.plays));
+  const tr = (i: number) => lib.tracks[i];
+  const ar = (i: number) => lib.artists[i].name;
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <div className="eyebrow">All time · since {fmtDate(lib.ts[0], { month: 'long', year: 'numeric' })}</div>
+          <h1 className="page-title">Records</h1>
+        </div>
+      </div>
+
+      <div className="records">
+        <Rec label="Total scrobbles" value={fmtNum(all.total)} sub={`${fmtNum(all.unique('artist'))} artists · ${fmtNum(all.unique('track'))} songs`} />
+        {data.day && <Rec label="Biggest day" value={fmtNum(data.day.count)} sub={fmtDay(data.day.day)} />}
+        {data.week && <Rec label="Biggest week" value={fmtNum(data.week.value)} sub={`week of ${data.week.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`} />}
+        {data.month && <Rec label="Biggest month" value={fmtNum(data.month.value)} sub={data.month.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} />}
+        {data.year && <Rec label="Biggest year" value={fmtNum(data.year.value)} sub={String(data.year.start.getFullYear())} />}
+        {data.streak && <Rec label="Longest streak" value={`${fmtNum(data.streak.days)} days`} sub={`${fmtDay(data.streak.start, { month: 'short', day: 'numeric', year: 'numeric' })} – ${fmtDay(data.streak.end, { month: 'short', day: 'numeric', year: 'numeric' })}`} />}
+        {data.aStreak && <Rec label="Longest artist streak" value={`${fmtNum(data.aStreak.streak.days)} days`} sub={ar(data.aStreak.artist)} href={entityPath('artist', ar(data.aStreak.artist), ar(data.aStreak.artist))} />}
+        {data.obs && (
+          <Rec
+            label="Most plays of one song in a day"
+            value={fmtNum(data.obs.count)}
+            sub={`${tr(data.obs.track).name} · ${fmtDay(data.obs.day, { month: 'short', day: 'numeric', year: 'numeric' })}`}
+            href={entityPath('track', tr(data.obs.track).name, ar(tr(data.obs.track).artist))}
+          />
+        )}
+      </div>
+
+      <Panel title="Year by year">
+        <div className="table-scroll">
+          <table className="table years">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th className="num">Plays</th>
+                <th className="num">Artists</th>
+                <th className="num">New</th>
+                <th>#1 artist</th>
+                <th>#1 song</th>
+                <th>#1 album</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.years.map((y) => (
+                <tr key={y.year}>
+                  <td className="disp">{y.year}</td>
+                  <td className="num">
+                    {fmtNum(y.plays)}
+                    <span className="tbar" style={{ width: `${(y.plays / maxYear) * 100}%` }} />
+                  </td>
+                  <td className="num">{fmtNum(y.artists)}</td>
+                  <td className="num">{fmtNum(y.newArtists)}</td>
+                  <td>{y.artist && <a href={entityPath('artist', y.artist.name, y.artist.artist)}>{y.artist.name}</a>}</td>
+                  <td>{y.track && <a href={entityPath('track', y.track.name, y.track.artist)}>{y.track.name}</a>}</td>
+                  <td>{y.album && <a href={entityPath('album', y.album.name, y.album.artist)}>{y.album.name}</a>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <div className="grid2">
+        <Panel title="Milestones">
+          <ol className="ledger compact">
+            {data.miles.map((m) => {
+              const t = tr(m.track);
+              return (
+                <li key={m.n}>
+                  <a className="ledger-row milestone" href={entityPath('track', t.name, ar(t.artist))}>
+                    <span className="ledger-rk">#{m.n >= 1000 ? `${m.n / 1000}K` : m.n}</span>
+                    <EntityImg kind="track" name={t.name} artist={ar(t.artist)} size={38} shape="square" />
+                    <span className="ledger-main">
+                      <span className="ledger-ttl">{t.name}</span>
+                      <span className="ledger-meta">
+                        {ar(t.artist)} · {fmtDate(m.ts)}
+                      </span>
+                    </span>
+                  </a>
+                </li>
+              );
+            })}
+          </ol>
+        </Panel>
+        <Panel title="Eras · your #1 artist every month">
+          <div className="eras tall">
+            {[...data.eras].reverse().map((m) =>
+              m.item ? (
+                <a key={m.month.getTime()} className="era" href={entityPath('artist', m.item.name, m.item.artist)}>
+                  <EntityImg kind="artist" name={m.item.name} artist={m.item.artist} shape="square" />
+                  <span className="era-month">{m.month.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })}</span>
+                  <span className="era-name">{m.item.name}</span>
+                </a>
+              ) : null,
+            )}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function Rec({ label, value, sub, href }: { label: string; value: string; sub?: string; href?: string }) {
+  const body = (
+    <>
+      <span className="eyebrow">{label}</span>
+      <span className="hl-value">{value}</span>
+      {sub && <span className="hl-sub">{sub}</span>}
+    </>
+  );
+  return href ? (
+    <a className="hl" href={href}>
+      {body}
+    </a>
+  ) : (
+    <div className="hl">{body}</div>
+  );
+}

@@ -98,3 +98,21 @@ export function rangeLabel(spec: RangeSpec, r: TimeRange, firstScrobble?: number
     }
   }
 }
+
+export type CompareMode = 'previous' | 'lastYear' | 'none';
+
+/** The range to compare against: the period right before, or the same dates a year earlier. */
+export function compareRange(spec: RangeSpec, r: TimeRange, mode: CompareMode): TimeRange | null {
+  if (mode === 'none' || spec.preset === 'all') return null;
+  if (mode === 'previous') return previousRange(spec, r);
+  const f = new Date(r.from * 1000);
+  const t = new Date(r.to * 1000);
+  return {
+    from: sec(new Date(f.getFullYear() - 1, f.getMonth(), f.getDate())),
+    to: sec(new Date(t.getFullYear() - 1, t.getMonth(), t.getDate())),
+  };
+}
+
+export function compareLabel(mode: CompareMode) {
+  return mode === 'previous' ? 'vs previous period' : mode === 'lastYear' ? 'vs same time last year' : '';
+}

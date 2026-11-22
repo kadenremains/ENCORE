@@ -1,6 +1,18 @@
 # Encore
 
-Fully customizable Last.fm "wrapped" graphics for **any date range**. Silver-on-ink, archival look by default.
+A much prettier, much deeper view of your Last.fm stats, plus fully customizable "wrapped" graphics for **any date range**. Silver-on-ink, archival look.
+
+## Stats
+
+- **Overview:** headline numbers with ▲▼ vs the previous period or the same time last year, top artists/albums/songs with rank movement, listening over time, a day-by-day heatmap, hour and weekday charts, highlights (biggest day, streaks, obsession), discoveries, and your #1 every month.
+- **Artists / Albums / Songs:** full ranked charts with search and sorting (most played, climbing, falling, new, newest discoveries), share of plays and first-heard dates.
+- **A page for every artist, album and song:** rank and movement, plays in range vs all time, first and last listen, an all-time monthly chart, top songs and albums, favourite hour and day, a day-by-day heatmap, and a custom image.
+- **Listening:** timeline by day/week/month/year, hour × weekday punchcard, a heatmap per year, biggest days, month by month, streaks and longest silence.
+- **Records (all time):** biggest day/week/month/year, streaks, scrobble milestones, year-by-year table, eras.
+
+The date range and comparison mode are shared across every page and remembered.
+
+## Create
 
 - **Any time range:** your whole scrobble history is downloaded once into your browser (IndexedDB), so every stat is computed locally and instantly for any range: a week, a summer, a custom span, or a year compared with the year before.
 - **Block editor:** drag and resize blocks on a real 1080×1920 (or 4:5, 1:1, 16:9, custom) canvas with snapping guides, undo/redo, layers and multiple slides.

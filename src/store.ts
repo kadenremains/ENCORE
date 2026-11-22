@@ -5,6 +5,16 @@ import { fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
+import type { CompareMode } from './lib/range';
+
+function loadJSON<T>(k: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(k);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 const LS = {
   get: (k: string) => {
@@ -23,7 +33,7 @@ const LS = {
   },
 };
 
-export type View = 'loading' | 'onboard' | 'home' | 'editor' | 'images';
+export type View = 'loading' | 'onboard' | 'app';
 
 interface AppState {
   view: View;
@@ -35,15 +45,15 @@ interface AppState {
   sync: SyncProgress | null;
   syncError: string | null;
   exploreRange: RangeSpec;
-  editingProjectId: string | null;
+  compare: CompareMode;
   setView: (v: View) => void;
   setExploreRange: (r: RangeSpec) => void;
+  setCompare: (c: CompareMode) => void;
   init: () => Promise<void>;
   connect: (username: string, apiKey: string) => Promise<void>;
   startDemo: () => Promise<void>;
   runSync: () => Promise<void>;
   disconnect: () => Promise<void>;
-  openProject: (id: string) => void;
 }
 
 function installHints(lib: Library) {
@@ -103,11 +113,18 @@ export const useApp = create<AppState>((set, get) => ({
   lib: null,
   sync: null,
   syncError: null,
-  exploreRange: { preset: 'this-year' },
-  editingProjectId: null,
+  exploreRange: loadJSON<RangeSpec>('sw.range', { preset: 'this-year' }),
+  compare: (LS.get('sw.compare') as CompareMode) || 'previous',
 
   setView: (view) => set({ view }),
-  setExploreRange: (exploreRange) => set({ exploreRange }),
+  setExploreRange: (exploreRange) => {
+    LS.set('sw.range', JSON.stringify(exploreRange));
+    set({ exploreRange });
+  },
+  setCompare: (compare) => {
+    LS.set('sw.compare', compare);
+    set({ compare });
+  },
 
   init: async () => {
     await loadImageState();
@@ -115,7 +132,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (!username && !demo) return set({ view: 'onboard' });
     const user = (await getStoredUser()) ?? null;
     const lib = await loadLibraryFromDb();
-    set({ user, lib, view: lib.n ? 'home' : 'onboard' });
+    set({ user, lib, view: lib.n ? 'app' : 'onboard' });
     if (!demo && username) get().runSync();
   },
 
@@ -127,7 +144,7 @@ export const useApp = create<AppState>((set, get) => ({
     LS.set('sw.demo', '0');
     if (get().demo) await db.scrobbles.clear();
     await setMeta('user', user);
-    set({ username: user.name, apiKey: apiKey.trim(), user, demo: false, view: 'home', lib: await loadLibraryFromDb() });
+    set({ username: user.name, apiKey: apiKey.trim(), user, demo: false, view: 'app', lib: await loadLibraryFromDb() });
     await get().runSync();
   },
 
@@ -139,7 +156,7 @@ export const useApp = create<AppState>((set, get) => ({
     const user: UserInfo = { name: 'demo', playcount: rows.length, registered: rows[0].ts };
     await setMeta('user', user);
     LS.set('sw.demo', '1');
-    set({ demo: true, user, lib: await loadLibraryFromDb(), view: 'home', exploreRange: { preset: 'this-year' } });
+    set({ demo: true, user, lib: await loadLibraryFromDb(), view: 'app' });
   },
 
   runSync: async () => {
@@ -178,5 +195,4 @@ export const useApp = create<AppState>((set, get) => ({
     set({ username: '', user: null, lib: null, demo: false, view: 'onboard', sync: null });
   },
 
-  openProject: (id) => set({ editingProjectId: id, view: 'editor' }),
 }));

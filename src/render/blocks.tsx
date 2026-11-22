@@ -361,7 +361,9 @@ function GridLayout({ items, b, p, w, h, count, collage }: { items: RankedItem[]
   const rows = Math.ceil(count / cols);
   let cell = (w - b.gap * (cols - 1)) / cols;
   const capFont = Math.max(10, cell * 0.11 * b.itemScale);
-  const capH = collage ? 0 : capFont * (b.showSub || b.showCounts ? 2.7 : 1.5);
+  // caption = padding + name line (serif names are drawn 1.2× larger) + optional meta line, plus breathing room
+  const nameLine = capFont * (p.serifNames ? 1.2 : 1) * 1.2;
+  const capH = collage ? 0 : capFont * 0.45 + nameLine + (b.showSub || b.showCounts ? capFont * 0.8 * 1.3 : 0) + capFont * 0.35;
   const maxCell = (h - b.gap * (rows - 1)) / rows - capH;
   cell = Math.max(10, Math.min(cell, maxCell));
   const gridW = cell * cols + b.gap * (cols - 1);

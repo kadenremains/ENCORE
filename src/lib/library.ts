@@ -18,6 +18,8 @@ export interface Library {
   tracks: { name: string; artist: number; album: number }[];
   albums: { name: string; artist: number; img?: string }[];
   firstSeen: Record<EntityKind, Float64Array>;
+  /** lowercase lookup keys -> index */
+  keys: { artist: Map<string, number>; album: Map<string, number>; track: Map<string, number> };
 }
 
 let versionCounter = 1;
@@ -103,6 +105,7 @@ export function buildLibrary(rows: StoredScrobble[]): Library {
     tracks,
     albums,
     firstSeen: { artist: Float64Array.from(aFirst), track: Float64Array.from(tFirst), album: Float64Array.from(alFirst) },
+    keys: { artist: aMap, album: alMap, track: tMap },
   };
 }
 
@@ -418,7 +421,68 @@ export class RangeStats {
     });
   }
 
-  /** Plays of a specific entity in range */
+  /** 7×24 matrix of plays, [weekday Mon..Sun][hour] */
+  hourWeekday(): number[][] {
+    return this.memo('hw', () => {
+      const m = Array.from({ length: 7 }, () => new Array(24).fill(0));
+      for (let i = this.lo; i < this.hi; i++) m[this.lib.weekday[i]][this.lib.hour[i]]++;
+      return m;
+    });
+  }
+
+  topDays(n: number): { day: number; count: number }[] {
+    return [...this.dayCounts().entries()]
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => b.count - a.count || a.day - b.day)
+      .slice(0, n);
+  }
+
+  /** Per-month summary rows (oldest first). */
+  monthTable(): { month: Date; plays: number; artists: number; top: RankedItem | null; topTrack: RankedItem | null }[] {
+    return this.memo('monthTable', () => {
+      const rows = new Map<number, { plays: number; artists: Map<number, number>; tracks: Map<number, number> }>();
+      for (let i = this.lo; i < this.hi; i++) {
+        const d = dayToDate(this.lib.day[i]);
+        const mk = d.getFullYear() * 12 + d.getMonth();
+        let r = rows.get(mk);
+        if (!r) rows.set(mk, (r = { plays: 0, artists: new Map(), tracks: new Map() }));
+        r.plays++;
+        const a = this.lib.artist[i];
+        r.artists.set(a, (r.artists.get(a) ?? 0) + 1);
+        const t = this.lib.track[i];
+        r.tracks.set(t, (r.tracks.get(t) ?? 0) + 1);
+      }
+      const best = (m: Map<number, number>) => {
+        let bi = -1;
+        let bc = 0;
+        for (const [k, c] of m) if (c > bc) ((bi = k), (bc = c));
+        return { idx: bi, count: bc };
+      };
+      return [...rows.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([mk, r]) => {
+          const ba = best(r.artists);
+          const bt = best(r.tracks);
+          return {
+            month: new Date(Math.floor(mk / 12), mk % 12, 1),
+            plays: r.plays,
+            artists: r.artists.size,
+            top: ba.idx >= 0 ? this.item('artist', ba, 1) : null,
+            topTrack: bt.idx >= 0 ? this.item('track', bt, 1) : null,
+          };
+        });
+    });
+  }
+
+  /** Biggest calendar week / month / year in the range. */
+  biggestPeriod(bucket: 'week' | 'month' | 'year'): { start: Date; value: number } | null {
+    const tl = this.timeline(bucket);
+    let best: { start: Date; value: number } | null = null;
+    for (const t of tl) if (!best || t.value > best.value) best = { start: t.start, value: t.value };
+    return best && best.value > 0 ? best : null;
+  }
+
+
   countOf(kind: EntityKind, idx: number) {
     return this.rankMap(kind).get(idx)?.count ?? 0;
   }
@@ -435,4 +499,126 @@ export function getStats(lib: Library, range: TimeRange): RangeStats {
     statsCache.set(key, s);
   }
   return s;
+}
+
+/* ---------------- entity lookups & per-entity stats ---------------- */
+
+export function findEntity(lib: Library, kind: EntityKind, name: string, artist: string): number {
+  const a = artist.toLowerCase();
+  if (kind === 'artist') return lib.keys.artist.get(a) ?? -1;
+  return lib.keys[kind].get(a + '\u0000' + name.toLowerCase()) ?? -1;
+}
+
+export interface EntityRangeStats {
+  plays: number;
+  days: number;
+  first: number | null; // ts within range
+  last: number | null;
+  byHour: number[];
+  byWeekday: number[];
+  dayCounts: Map<number, number>;
+  busiestDay: { day: number; count: number } | null;
+  streak: Streak | null;
+  tracks: Ranked[]; // songs within this artist / album
+  albums: Ranked[]; // albums within this artist
+  artistsOf: Ranked[]; // (unused for artists) artist breakdown
+}
+
+export interface EntityAllTime {
+  plays: number;
+  first: number;
+  last: number;
+  months: { month: Date; value: number }[];
+}
+
+function columnOf(lib: Library, kind: EntityKind) {
+  return kind === 'artist' ? lib.artist : kind === 'album' ? lib.album : lib.track;
+}
+
+const entityCache = new Map<string, unknown>();
+function ememo<T>(key: string, fn: () => T): T {
+  if (!entityCache.has(key)) {
+    if (entityCache.size > 200) entityCache.clear();
+    entityCache.set(key, fn());
+  }
+  return entityCache.get(key) as T;
+}
+
+export function entityRangeStats(lib: Library, kind: EntityKind, idx: number, range: TimeRange): EntityRangeStats {
+  return ememo(`er:${lib.version}:${kind}:${idx}:${range.from}:${range.to}`, () => {
+    const col = columnOf(lib, kind);
+    const lo = lowerBound(lib.ts, range.from);
+    const hi = lowerBound(lib.ts, range.to);
+    const byHour = new Array(24).fill(0);
+    const byWeekday = new Array(7).fill(0);
+    const dayCounts = new Map<number, number>();
+    const tracks = new Map<number, number>();
+    const albums = new Map<number, number>();
+    let plays = 0;
+    let first: number | null = null;
+    let last: number | null = null;
+    for (let i = lo; i < hi; i++) {
+      if (col[i] !== idx) continue;
+      plays++;
+      if (first === null) first = lib.ts[i];
+      last = lib.ts[i];
+      byHour[lib.hour[i]]++;
+      byWeekday[lib.weekday[i]]++;
+      const d = lib.day[i];
+      dayCounts.set(d, (dayCounts.get(d) ?? 0) + 1);
+      tracks.set(lib.track[i], (tracks.get(lib.track[i]) ?? 0) + 1);
+      if (lib.album[i] >= 0) albums.set(lib.album[i], (albums.get(lib.album[i]) ?? 0) + 1);
+    }
+    let busiestDay: { day: number; count: number } | null = null;
+    for (const [day, count] of dayCounts) if (!busiestDay || count > busiestDay.count) busiestDay = { day, count };
+    const days = [...dayCounts.keys()].sort((a, b) => a - b);
+    let streak: Streak | null = null;
+    if (days.length) {
+      let cur: Streak = { days: 1, start: days[0], end: days[0] };
+      streak = { ...cur };
+      for (let i = 1; i < days.length; i++) {
+        if (days[i] === days[i - 1] + 1) ((cur.days += 1), (cur.end = days[i]));
+        else cur = { days: 1, start: days[i], end: days[i] };
+        if (cur.days > streak.days) streak = { ...cur };
+      }
+    }
+    const rank = (m: Map<number, number>) => [...m.entries()].map(([i, c]) => ({ idx: i, count: c })).sort((a, b) => b.count - a.count);
+    return { plays, days: dayCounts.size, first, last, byHour, byWeekday, dayCounts, busiestDay, streak, tracks: rank(tracks), albums: rank(albums), artistsOf: [] };
+  });
+}
+
+export function entityAllTime(lib: Library, kind: EntityKind, idx: number): EntityAllTime {
+  return ememo(`ea:${lib.version}:${kind}:${idx}`, () => {
+    const col = columnOf(lib, kind);
+    let plays = 0;
+    let first = 0;
+    let last = 0;
+    const months = new Map<number, number>();
+    for (let i = 0; i < lib.n; i++) {
+      if (col[i] !== idx) continue;
+      if (!plays) first = lib.ts[i];
+      plays++;
+      last = lib.ts[i];
+      const d = dayToDate(lib.day[i]);
+      const mk = d.getFullYear() * 12 + d.getMonth();
+      months.set(mk, (months.get(mk) ?? 0) + 1);
+    }
+    // continuous monthly series from first play to now
+    const out: { month: Date; value: number }[] = [];
+    if (plays) {
+      const s = new Date(first * 1000);
+      const e = new Date();
+      for (let y = s.getFullYear(), m = s.getMonth(); y < e.getFullYear() || (y === e.getFullYear() && m <= e.getMonth()); m === 11 ? ((m = 0), y++) : m++) {
+        out.push({ month: new Date(y, m, 1), value: months.get(y * 12 + m) ?? 0 });
+      }
+    }
+    return { plays, first, last, months: out };
+  });
+}
+
+/** The scrobble that hit each round-number milestone. */
+export function milestones(lib: Library): { n: number; ts: number; track: number }[] {
+  const marks = [1, 100, 500, 1000, 2500, 5000, 10000, 15000, 20000, 25000];
+  for (let m = 50000; m <= lib.n; m += 25000) marks.push(m);
+  return marks.filter((m) => m <= lib.n).map((m) => ({ n: m, ts: lib.ts[m - 1], track: lib.track[m - 1] }));
 }
