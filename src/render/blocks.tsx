@@ -663,18 +663,42 @@ function StatView({ ctx, b }: { ctx: RenderCtx; b: StatBlock }) {
   const label = b.label || defaultStatLabel(b.stat);
   const subText = b.sub === 'auto' ? sub : b.sub === 'custom' ? b.subText : '';
   const labelSize = Math.max(14, Math.min(b.size * 0.3, 44));
-  const lines = 1 + (label ? 1 : 0) + (subText ? 1 : 0);
-  // shrink the number to fit the box width / height
-  const fit = Math.min(b.size, (w / Math.max(2, text.length * 0.58)) * 1, (h - (lines - 1) * labelSize * 1.4) / 1.05);
+  const labelFont = p.sharp ? labelSize * 0.62 : labelSize;
+  const gap = labelSize * 0.25;
+  // how many lines the label wraps to (max 2), so the number leaves room for it
+  const charW = p.sharp ? 0.84 : 0.54;
+  const labelLines = label ? Math.min(2, Math.ceil((label.length * labelFont * charW) / Math.max(1, w))) : 0;
+  const labelH = labelLines * labelFont * 1.25;
+  const subH = subText ? labelSize * 0.8 * 1.3 : 0;
+  const gaps = gap * ((label ? 1 : 0) + (subText ? 1 : 0));
+  // shrink the number to fit the box width and whatever height the label + detail line leave
+  const fit = Math.min(b.size, w / Math.max(2, text.length * 0.58), (h - labelH - subH - gaps) / 1.04);
   const labelEl = label ? (
-    <div style={{ fontSize: p.sharp ? labelSize * 0.62 : labelSize, fontWeight: p.sharp ? 400 : 600, color: p.muted, ...(p.sharp ? { textTransform: 'uppercase', letterSpacing: '0.22em' } : {}), lineHeight: 1.2, maxWidth: '100%', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{label}</div>
+    <div
+      style={{
+        fontSize: labelFont,
+        fontWeight: p.sharp ? 400 : 600,
+        color: p.muted,
+        ...(p.sharp ? { textTransform: 'uppercase', letterSpacing: '0.22em' } : {}),
+        lineHeight: 1.25,
+        maxWidth: '100%',
+        flexShrink: 0,
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden',
+        paddingBottom: '0.08em',
+      }}
+    >
+      {label}
+    </div>
   ) : null;
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: b.align, alignItems: b.align === 'center' ? 'center' : b.align === 'right' ? 'flex-end' : 'flex-start', gap: labelSize * 0.25 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: b.align, alignItems: b.align === 'center' ? 'center' : b.align === 'right' ? 'flex-end' : 'flex-start', gap }}>
       {b.labelPosition === 'above' && labelEl}
       <div style={{ fontFamily: p.heading, fontSize: Math.max(12, fit), fontWeight: 800, lineHeight: 1, letterSpacing: p.trackingEm ? `${p.trackingEm * 0.4}em` : '-0.03em', color: b.useAccent ? p.accent : p.text, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{text}</div>
       {b.labelPosition === 'below' && labelEl}
-      {subText && <div style={{ fontSize: labelSize * 0.8, color: p.muted, lineHeight: 1.25, maxWidth: '100%', ...ellipsis }}>{subText}</div>}
+      {subText && <div style={{ fontSize: labelSize * 0.8, color: p.muted, lineHeight: 1.3, maxWidth: '100%', flexShrink: 0, ...ellipsis }}>{subText}</div>}
     </div>
   );
 }

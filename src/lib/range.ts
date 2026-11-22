@@ -50,6 +50,10 @@ export function resolveRange(spec: RangeSpec, now = new Date()): TimeRange {
       return daysBack(90);
     case 'last-365':
       return daysBack(365);
+    case 'year': {
+      const yr = spec.year ?? y;
+      return { from: sec(new Date(yr, 0, 1)), to: sec(new Date(yr + 1, 0, 1)) };
+    }
     case 'custom': {
       const s = spec.start ? parseISODate(spec.start) : new Date(y, 0, 1);
       const e = spec.end ? parseISODate(spec.end) : today;
@@ -62,7 +66,7 @@ export function resolveRange(spec: RangeSpec, now = new Date()): TimeRange {
 /** The equal-length period right before the range (calendar-aware for years / months). */
 export function previousRange(spec: RangeSpec, r: TimeRange): TimeRange {
   const from = new Date(r.from * 1000);
-  if (spec.preset === 'this-year' || spec.preset === 'last-year') {
+  if (spec.preset === 'this-year' || spec.preset === 'last-year' || spec.preset === 'year') {
     return { from: sec(new Date(from.getFullYear() - 1, 0, 1)), to: r.from };
   }
   if (spec.preset === 'this-month' || spec.preset === 'last-month') {
@@ -86,6 +90,8 @@ export function rangeLabel(spec: RangeSpec, r: TimeRange, firstScrobble?: number
     case 'this-month':
     case 'last-month':
       return fmt(new Date(r.from * 1000), { month: 'long', year: 'numeric' });
+    case 'year':
+      return String(spec.year ?? now.getFullYear());
     default: {
       const s = new Date(r.from * 1000);
       const e = new Date((r.to - 1) * 1000);

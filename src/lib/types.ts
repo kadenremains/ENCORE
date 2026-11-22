@@ -35,10 +35,13 @@ export type RangePreset =
   | 'last-30'
   | 'last-90'
   | 'last-365'
+  | 'year'
   | 'custom';
 
 export interface RangeSpec {
   preset: RangePreset;
+  /** for preset 'year' */
+  year?: number;
   /** ISO date strings (yyyy-mm-dd), inclusive, used for custom */
   start?: string;
   end?: string;

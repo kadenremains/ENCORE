@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { RANGE_PRESETS, resolveRange, toISODate } from '../lib/range';
 import type { RangeSpec } from '../lib/types';
 import { fileToDataUrl } from '../lib/images';
+import { useApp } from '../store';
 
 export function Section({ title, children, defaultOpen = true, right }: { title: string; children: ReactNode; defaultOpen?: boolean; right?: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -119,24 +120,34 @@ export function TextInput({ value, onChange, placeholder, multiline }: { value: 
 }
 
 export function RangePicker({ value, onChange, compact }: { value: RangeSpec; onChange: (r: RangeSpec) => void; compact?: boolean }) {
+  // nothing before your first scrobble (or after today) can be picked
+  const firstTs = useApp((st) => (st.lib?.n ? st.lib.ts[0] : null));
+  const today = toISODate(new Date());
+  const minISO = firstTs ? toISODate(new Date(firstTs * 1000)) : '2002-01-01';
+  const clamp = (d: string) => (d < minISO ? minISO : d > today ? today : d);
   const r = resolveRange(value);
-  const start = value.start ?? toISODate(new Date(Math.max(r.from, 0) * 1000));
-  const end = value.end ?? toISODate(new Date((r.to - 1) * 1000));
+  const start = clamp(value.start ?? toISODate(new Date(Math.max(r.from, 0) * 1000)));
+  const end = clamp(value.end ?? toISODate(new Date((r.to - 1) * 1000)));
+  const thisYear = new Date().getFullYear();
+  const firstYear = firstTs ? new Date(firstTs * 1000).getFullYear() : 2003;
   const years: number[] = [];
-  for (let y = new Date().getFullYear(); y >= 2003; y--) years.push(y);
+  for (let y = thisYear; y >= firstYear; y--) years.push(y);
+  // hide presets that end before your first scrobble
+  const presets = RANGE_PRESETS.filter((p) => p.value === 'all' || p.value === 'custom' || !firstTs || resolveRange({ preset: p.value }).to > firstTs);
+  const selected = value.preset === 'year' ? `y${value.year ?? thisYear}` : value.preset;
   return (
     <div className={`range-picker ${compact ? 'compact' : ''}`}>
       <select
         className="select"
-        value={value.preset === 'custom' && isWholeYear(value) ? `y${value.start!.slice(0, 4)}` : value.preset}
+        value={selected}
         onChange={(e) => {
           const v = e.target.value;
-          if (v.startsWith('y')) onChange({ preset: 'custom', start: `${v.slice(1)}-01-01`, end: `${v.slice(1)}-12-31` });
+          if (v.startsWith('y')) onChange({ preset: 'year', year: Number(v.slice(1)) });
           else if (v === 'custom') onChange({ preset: 'custom', start, end });
           else onChange({ preset: v as RangeSpec['preset'] });
         }}
       >
-        {RANGE_PRESETS.map((p) => (
+        {presets.map((p) => (
           <option key={p.value} value={p.value}>
             {p.label}
           </option>
@@ -149,19 +160,15 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
           ))}
         </optgroup>
       </select>
-      {value.preset === 'custom' && !isWholeYear(value) && (
+      {value.preset === 'custom' && (
         <div className="dates">
-          <input type="date" value={start} onChange={(e) => onChange({ preset: 'custom', start: e.target.value, end })} />
+          <input type="date" min={minISO} max={end} value={start} onChange={(e) => e.target.value && onChange({ preset: 'custom', start: clamp(e.target.value), end })} />
           <span>→</span>
-          <input type="date" value={end} onChange={(e) => onChange({ preset: 'custom', start, end: e.target.value })} />
+          <input type="date" min={start} max={today} value={end} onChange={(e) => e.target.value && onChange({ preset: 'custom', start, end: clamp(e.target.value) })} />
         </div>
       )}
     </div>
   );
-}
-
-function isWholeYear(v: RangeSpec) {
-  return !!v.start && !!v.end && v.start.endsWith('-01-01') && v.end.endsWith('-12-31') && v.start.slice(0, 4) === v.end.slice(0, 4);
 }
 
 export function UploadButton({ onImage, children, className }: { onImage: (dataUrl: string) => void; children: ReactNode; className?: string }) {
