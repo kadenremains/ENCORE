@@ -25,6 +25,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # optional: a shared Last.fm API key so visitors only need their username
+          VITE_LASTFM_API_KEY: ${{ vars.LASTFM_API_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

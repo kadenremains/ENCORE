@@ -5,7 +5,9 @@ import { useApp } from '../store';
 export function Onboard() {
   const { connect, startDemo, username: savedUser, apiKey: savedKey, sync, view } = useApp();
   const [username, setUsername] = useState(savedUser);
-  const [apiKey, setApiKey] = useState(savedKey);
+  const builtInKey = (import.meta.env.VITE_LASTFM_API_KEY as string | undefined) || '';
+  const [apiKey, setApiKey] = useState(savedKey || builtInKey);
+  const [ownKey, setOwnKey] = useState(!builtInKey || (!!savedKey && savedKey !== builtInKey));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,17 +50,30 @@ export function Onboard() {
             <span className="field-label">Last.fm username</span>
             <input className="text-input big" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="your-username" autoCapitalize="off" autoCorrect="off" required />
           </label>
-          <label className="field">
-            <span className="field-label">Last.fm API key</span>
-            <input className="text-input big mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="32-character key" autoCapitalize="off" autoCorrect="off" required />
-            <span className="field-hint">
-              Free, takes 30 seconds:{' '}
-              <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">
-                create an API account
-              </a>{' '}
-              (any app name, leave callback blank) and copy the “API key”.
-            </span>
-          </label>
+          {ownKey ? (
+            <label className="field">
+              <span className="field-label">Last.fm API key</span>
+              <input className="text-input big mono" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="32-character key" autoCapitalize="off" autoCorrect="off" required />
+              <span className="field-hint">
+                Free, takes 30 seconds:{' '}
+                <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">
+                  create an API account
+                </a>{' '}
+                (any app name, leave callback blank) and copy the “API key”.
+              </span>
+            </label>
+          ) : (
+            <button
+              type="button"
+              className="link small-link"
+              onClick={() => {
+                setOwnKey(true);
+                setApiKey('');
+              }}
+            >
+              Use my own API key instead
+            </button>
+          )}
           {error && <p className="error">{error}</p>}
           <button className="btn primary big" disabled={busy || view === 'loading'}>
             {busy ? (sync?.total ? `Downloading history… ${Math.round((sync.done / sync.total) * 100)}%` : 'Connecting…') : 'Connect & download my history'}

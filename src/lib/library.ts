@@ -616,9 +616,40 @@ export function entityAllTime(lib: Library, kind: EntityKind, idx: number): Enti
   });
 }
 
-/** The scrobble that hit each round-number milestone. */
-export function milestones(lib: Library): { n: number; ts: number; track: number }[] {
-  const marks = [1, 100, 500, 1000, 2500, 5000, 10000, 15000, 20000, 25000];
-  for (let m = 50000; m <= lib.n; m += 25000) marks.push(m);
-  return marks.filter((m) => m <= lib.n).map((m) => ({ n: m, ts: lib.ts[m - 1], track: lib.track[m - 1] }));
+export type MilestoneStep = 'classic' | number;
+
+const CLASSIC = [1, 100, 500, 1000, 2500, 5000, 10000, 15000, 20000, 25000];
+
+/** Which play counts count as milestones. */
+export function milestoneMarks(step: MilestoneStep, total: number, includeFirst = true): number[] {
+  const marks: number[] = [];
+  if (step === 'classic') {
+    marks.push(...CLASSIC);
+    for (let m = 50000; m <= total + 25000; m += 25000) marks.push(m);
+  } else {
+    const st = Math.max(1, Math.floor(step));
+    if (includeFirst) marks.push(1);
+    for (let m = st; m <= total + st; m += st) marks.push(m);
+  }
+  return [...new Set(marks)].sort((a, b) => a - b);
+}
+
+/**
+ * The scrobble that hit each milestone, plus the next one coming up.
+ * `artist` limits counting to one artist's plays (e.g. "your 500th Frank Ocean play").
+ */
+export function milestones(lib: Library, step: MilestoneStep = 'classic', artist = -1): { hit: { n: number; ts: number; track: number }[]; next: number | null; total: number } {
+  // positions (indices into the library) of the counted scrobbles
+  let total = lib.n;
+  let pos: (k: number) => number = (k) => k - 1;
+  if (artist >= 0) {
+    const idx: number[] = [];
+    for (let i = 0; i < lib.n; i++) if (lib.artist[i] === artist) idx.push(i);
+    total = idx.length;
+    pos = (k) => idx[k - 1];
+  }
+  const marks = milestoneMarks(step, total);
+  const hit = marks.filter((m) => m <= total).map((m) => ({ n: m, ts: lib.ts[pos(m)], track: lib.track[pos(m)] }));
+  const next = marks.find((m) => m > total) ?? null;
+  return { hit, next, total };
 }

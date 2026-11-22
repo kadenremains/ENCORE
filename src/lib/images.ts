@@ -187,8 +187,11 @@ function schedule<T>(fn: () => Promise<T>): Promise<T> {
       fn()
         .then(resolve, reject)
         .finally(() => {
-          active--;
-          queue.shift()?.();
+          // pace requests: Deezer allows ~50 per 5s, Apple far fewer
+          setTimeout(() => {
+            active--;
+            queue.shift()?.();
+          }, 150);
         });
     };
     if (active < 3) run();

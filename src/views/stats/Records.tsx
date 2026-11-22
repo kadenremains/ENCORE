@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../../store';
-import { getStats, milestones } from '../../lib/library';
+import { getStats, milestones, type MilestoneStep } from '../../lib/library';
 import { Panel, fmtDate, fmtDay } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath } from '../../router';
@@ -32,7 +32,6 @@ export function Records() {
       streak: all.longestStreak(),
       aStreak: all.artistStreak(),
       obs: all.obsession(),
-      miles: milestones(lib).reverse(),
       eras: all.topPerMonth('artist'),
     };
   }, [lib]);
@@ -104,27 +103,7 @@ export function Records() {
       </Panel>
 
       <div className="grid2">
-        <Panel title="Milestones">
-          <ol className="ledger compact">
-            {data.miles.map((m) => {
-              const t = tr(m.track);
-              return (
-                <li key={m.n}>
-                  <a className="ledger-row milestone" href={entityPath('track', t.name, ar(t.artist))}>
-                    <span className="ledger-rk">#{m.n >= 1000 ? `${m.n / 1000}K` : m.n}</span>
-                    <EntityImg kind="track" name={t.name} artist={ar(t.artist)} size={38} shape="square" />
-                    <span className="ledger-main">
-                      <span className="ledger-ttl">{t.name}</span>
-                      <span className="ledger-meta">
-                        {ar(t.artist)} · {fmtDate(m.ts)}
-                      </span>
-                    </span>
-                  </a>
-                </li>
-              );
-            })}
-          </ol>
-        </Panel>
+        <Milestones />
         <Panel title="Eras · your #1 artist every month">
           <div className="eras tall">
             {[...data.eras].reverse().map((m) =>
@@ -157,5 +136,126 @@ function Rec({ label, value, sub, href }: { label: string; value: string; sub?: 
     </a>
   ) : (
     <div className="hl">{body}</div>
+  );
+}
+
+const LS_KEY = 'sw.milestones';
+const STEP_OPTIONS: { value: string; label: string }[] = [
+  { value: 'classic', label: 'Classic (1, 100, 1K, 5K, 10K…)' },
+  { value: '100', label: 'Every 100' },
+  { value: '500', label: 'Every 500' },
+  { value: '1000', label: 'Every 1,000' },
+  { value: '5000', label: 'Every 5,000' },
+  { value: '10000', label: 'Every 10,000' },
+  { value: '25000', label: 'Every 25,000' },
+  { value: '50000', label: 'Every 50,000' },
+  { value: '100000', label: 'Every 100,000' },
+  { value: 'custom', label: 'Custom interval…' },
+];
+
+function loadPrefs(): { step: string; custom: number; artist: string; order: 'newest' | 'oldest' } {
+  try {
+    return { step: 'classic', custom: 2000, artist: '', order: 'newest', ...JSON.parse(localStorage.getItem(LS_KEY) || '{}') };
+  } catch {
+    return { step: 'classic', custom: 2000, artist: '', order: 'newest' };
+  }
+}
+
+const shortN = (n: number) => (n >= 1000 && n % 10 === 0 ? `${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}K` : fmtNum(n));
+
+function Milestones() {
+  const lib = useApp((s) => s.lib)!;
+  const [prefs, setPrefsState] = useState(loadPrefs);
+  const setPrefs = (p: Partial<typeof prefs>) => {
+    const next = { ...prefs, ...p };
+    setPrefsState(next);
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode */
+    }
+  };
+  const topArtists = useMemo(() => getStats(lib, { from: 0, to: Infinity }).ranking('artist').slice(0, 100), [lib]);
+  const artistIdx = prefs.artist ? (lib.keys.artist.get(prefs.artist.toLowerCase()) ?? -1) : -1;
+  const step: MilestoneStep = prefs.step === 'classic' ? 'classic' : prefs.step === 'custom' ? Math.max(1, prefs.custom || 1) : Number(prefs.step);
+  const data = useMemo(() => milestones(lib, step, artistIdx), [lib, step, artistIdx]);
+  const rows = prefs.order === 'newest' ? [...data.hit].reverse() : data.hit;
+  const who = artistIdx >= 0 ? lib.artists[artistIdx].name : '';
+  const tr = (i: number) => lib.tracks[i];
+  const ar = (i: number) => lib.artists[i].name;
+
+  return (
+    <Panel title="Milestones" right={<span className="muted small">{fmtNum(data.hit.length)} reached</span>}>
+      <div className="milestone-tools">
+        <select className="select" value={prefs.step} onChange={(e) => setPrefs({ step: e.target.value })}>
+          {STEP_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {prefs.step === 'custom' && (
+          <input
+            className="text-input"
+            type="number"
+            min={1}
+            value={prefs.custom}
+            onChange={(e) => setPrefs({ custom: Number(e.target.value) })}
+            placeholder="e.g. 2000"
+            title="Interval"
+          />
+        )}
+        <select className="select" value={prefs.artist} onChange={(e) => setPrefs({ artist: e.target.value })}>
+          <option value="">All scrobbles</option>
+          <optgroup label="Plays of one artist">
+            {topArtists.map((r) => (
+              <option key={r.idx} value={lib.artists[r.idx].name}>
+                {lib.artists[r.idx].name} ({fmtNum(r.count)})
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <div className="seg">
+          <button aria-pressed={prefs.order === 'newest'} onClick={() => setPrefs({ order: 'newest' })}>
+            Newest
+          </button>
+          <button aria-pressed={prefs.order === 'oldest'} onClick={() => setPrefs({ order: 'oldest' })}>
+            Oldest
+          </button>
+        </div>
+      </div>
+      {data.next !== null && (
+        <div className="milestone-next">
+          <span className="eyebrow">Next up</span>
+          <span>
+            {who ? `${who} play` : 'Scrobble'} <b>#{fmtNum(data.next)}</b> in <b>{fmtNum(data.next - data.total)}</b> more
+          </span>
+          <span className="milestone-progress">
+            <i style={{ width: `${Math.min(100, (data.total / data.next) * 100)}%` }} />
+          </span>
+        </div>
+      )}
+      <ol className="ledger compact milestones-list">
+        {rows.map((m) => {
+          const t = tr(m.track);
+          return (
+            <li key={m.n}>
+              <a className="ledger-row milestone" href={entityPath('track', t.name, ar(t.artist))}>
+                <span className="ledger-rk" title={`#${fmtNum(m.n)}`}>
+                  #{shortN(m.n)}
+                </span>
+                <EntityImg kind="track" name={t.name} artist={ar(t.artist)} size={38} shape="square" />
+                <span className="ledger-main">
+                  <span className="ledger-ttl">{t.name}</span>
+                  <span className="ledger-meta">
+                    {ar(t.artist)} · {fmtDate(m.ts)}
+                  </span>
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </Panel>
   );
 }
