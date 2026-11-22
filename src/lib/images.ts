@@ -318,48 +318,82 @@ export function useImagesVersion() {
 }
 
 /** Read a user file, downscale to keep IndexedDB lean, return a data URL. */
-export async function fileToDataUrl(file: File, max = 1600): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = rej;
-      i.src = url;
-    });
-    const draw = (limit: number) => {
-      const scale = Math.min(1, limit / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.naturalWidth * scale));
-      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-      return c;
-    };
-    let c = draw(max);
-    // keep PNG only when the picture actually has transparency
-    let alpha = false;
-    if (file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp') {
-      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-      for (let i = 3; i < d.length; i += 16) if (d[i] < 250) {
+/** Downscale + re-encode an image source until it's under `target` characters (keeps PNG only for transparency). */
+async function shrinkImage(src: string, opts: { max?: number; target?: number; maybeAlpha?: boolean } = {}): Promise<string> {
+  const { max = 1600, target = 700_000, maybeAlpha = true } = opts;
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = rej;
+    i.src = src;
+  });
+  const draw = (limit: number) => {
+    const scale = Math.min(1, limit / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  };
+  let c = draw(max);
+  let alpha = false;
+  if (maybeAlpha) {
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < d.length; i += 16)
+      if (d[i] < 250) {
         alpha = true;
         break;
       }
+  }
+  let q = 0.9;
+  let limit = max;
+  let out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+  for (let tries = 0; out.length > target && tries < 8; tries++) {
+    if (!alpha && q > 0.72) q -= 0.06;
+    else {
+      limit = Math.round(limit * 0.8);
+      c = draw(limit);
     }
-    // stay well under the 2 MB sync limit (and keep wrappeds light): aim for < 700 KB
-    const TARGET = 700_000;
-    let q = 0.9;
-    let limit = max;
-    let out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
-    for (let tries = 0; out.length > TARGET && tries < 8; tries++) {
-      if (!alpha && q > 0.72) q -= 0.06;
-      else {
-        limit = Math.round(limit * 0.8);
-        c = draw(limit);
-      }
-      out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
-    }
-    return out;
+    out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+  }
+  return out;
+}
+
+export async function fileToDataUrl(file: File, max = 1600): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    return await shrinkImage(url, { max, maybeAlpha: file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp' });
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** Shrink an already-stored data URL if it's bigger than `over` characters; returns it unchanged otherwise. */
+export async function shrinkDataUrl(src: string, over = 900_000): Promise<string> {
+  if (!src.startsWith('data:image') || src.length <= over) return src;
+  try {
+    const out = await shrinkImage(src, { maybeAlpha: src.startsWith('data:image/png') || src.startsWith('data:image/webp') || src.startsWith('data:image/gif') });
+    return out.length < src.length ? out : src;
+  } catch {
+    return src;
+  }
+}
+
+/** One-time cleanup: shrink oversized custom pictures saved before uploads were compressed. */
+export async function shrinkStoredOverrides(): Promise<number> {
+  let changed = 0;
+  for (const o of await db.overrides.toArray()) {
+    const src = await shrinkDataUrl(o.src);
+    if (src !== o.src) {
+      const next = { ...o, src, updated: Date.now() };
+      overrides.set(o.key, next);
+      await db.overrides.put(next);
+      changed++;
+    }
+  }
+  if (changed) {
+    emit();
+    localChanged();
+  }
+  return changed;
 }

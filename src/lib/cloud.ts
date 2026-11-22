@@ -25,7 +25,20 @@ const LS = {
   },
 };
 
-const K = { auth: 'sw.cloud', cursor: 'sw.cloud.cursor', pushedAt: 'sw.cloud.pushedAt', settingsUpdated: 'sw.settings.updated' };
+const K = { auth: 'sw.cloud', cursor: 'sw.cloud.cursor', pushedAt: 'sw.cloud.pushedAt', settingsUpdated: 'sw.settings.updated', rejected: 'sw.cloud.rejected', version: 'sw.cloud.v' };
+
+/** Items the server refused last time; they're retried on every sync until they go through. */
+function rejectedKeys(): Set<string> {
+  try {
+    return new Set(JSON.parse(LS.get(K.rejected) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+export function isRejected(kind: 'project' | 'image', id: string) {
+  return rejectedKeys().has(`${kind}:${id}`);
+}
 
 function loadAuth(): { token: string | null; user: string | null } {
   try {
@@ -155,6 +168,7 @@ export function setOnSignedIn(fn: (user: string) => void) {
 
 function adoptSession(token: string, user: string) {
   LS.set(K.auth, JSON.stringify({ token, user }));
+  LS.set(K.version, SYNC_VERSION);
   // a fresh sign-in pulls everything and uploads everything already on this device
   LS.set(K.cursor, null);
   LS.set(K.pushedAt, null);
@@ -276,11 +290,12 @@ async function doSync() {
     const pushedAt = Number(LS.get(K.pushedAt)) || 0;
 
     // ---- gather local changes since the last successful push ----
+    const retry = rejectedKeys();
     const projects: RemoteProject[] = (await db.projects.toArray())
-      .filter((p) => p.updated > pushedAt)
+      .filter((p) => p.updated > pushedAt || retry.has(`project:${p.id}`))
       .map((p) => ({ id: p.id, data: JSON.stringify(p), updated: p.updated, deleted: false }));
     const images: RemoteImage[] = (await db.overrides.toArray())
-      .filter((o) => o.updated > pushedAt)
+      .filter((o) => o.updated > pushedAt || retry.has(`image:${o.key}`))
       .map((o) => ({ key: o.key, src: o.src, zoom: o.zoom, x: o.x, y: o.y, updated: o.updated, deleted: false }));
     for (const [k, at] of Object.entries(tombstones())) {
       if (at <= pushedAt) continue;
@@ -327,6 +342,7 @@ async function doSync() {
 
     LS.set(K.cursor, JSON.stringify(cursor));
     LS.set(K.pushedAt, String(startedAt));
+    LS.set(K.rejected, JSON.stringify(rejected));
     LS.set('sw.cloud.lastSync', String(Date.now()));
     useCloud.setState({
       status: 'idle',
@@ -407,11 +423,19 @@ export function forceFullSync() {
 /* ---------------- lifecycle ---------------- */
 
 let started = false;
+/** Bump to make every signed-in device re-upload and re-download everything once. */
+const SYNC_VERSION = '2';
 
 export function initCloud(h: Hooks) {
   hooks = h;
   if (started || !API_URL) return;
   started = true;
+  if (useCloud.getState().token && LS.get(K.version) !== SYNC_VERSION) {
+    // v2: the server stores big items in pieces now, so resend anything that was refused before
+    LS.set(K.pushedAt, null);
+    LS.set(K.cursor, null);
+    LS.set(K.version, SYNC_VERSION);
+  }
   setChangeListener(() => {
     changeSeq++;
     if (useCloud.getState().token) useCloud.setState({ dirty: true });

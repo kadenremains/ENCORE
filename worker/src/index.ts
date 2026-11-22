@@ -30,7 +30,9 @@ const READ_METHODS = new Set([
   'album.getinfo',
   'track.getinfo',
 ]);
-const MAX_ROW = 1_900_000; // D1 rows top out at 2 MB
+const CHUNK = 1_800_000; // D1 rows top out at 2 MB, so bigger values are split across rows
+const MAX_ITEM = 40_000_000; // sanity cap per wrapped / picture
+const CHUNKED = '__chunks__:';
 const PAGE_BYTES = 8_000_000; // keep each sync response comfortably small
 
 interface Keys {
@@ -257,39 +259,64 @@ async function sync(req: Request, env: Env) {
   // unique, increasing server revision per row so paging by cursor never skips ties
   let seq = 0;
   const rev = () => now * 1000 + seq++;
-  const stmts: D1PreparedStatement[] = [];
+  // statements grouped per item (an item's pieces are written atomically), with approximate byte size
+  const groups: { stmts: D1PreparedStatement[]; bytes: number }[] = [];
+  let stmts: D1PreparedStatement[] = [];
+  const flushGroup = (bytes: number) => {
+    if (stmts.length) groups.push({ stmts, bytes });
+    stmts = [];
+  };
   const rejected: string[] = [];
+
+  // big values are stored in pieces; only write when the incoming version is newer
+  const newer = async (table: 'projects' | 'images', col: 'id' | 'key', key: string, updated: number) => {
+    const row = await env.DB.prepare(`SELECT updated FROM ${table} WHERE user = ? AND ${col} = ?`).bind(user, key).first<{ updated: number }>();
+    return !row || updated > row.updated;
+  };
+  const chunkStmts = (kind: string, key: string, value: string | null) => {
+    const out = [env.DB.prepare('DELETE FROM chunks WHERE user = ? AND kind = ? AND key = ?').bind(user, kind, key)];
+    if (!value || value.length <= CHUNK) return { stored: value, stmts: out };
+    const n = Math.ceil(value.length / CHUNK);
+    for (let i = 0; i < n; i++) out.push(env.DB.prepare('INSERT INTO chunks (user, kind, key, seq, data) VALUES (?, ?, ?, ?, ?)').bind(user, kind, key, i, value.slice(i * CHUNK, (i + 1) * CHUNK)));
+    return { stored: `${CHUNKED}${n}`, stmts: out };
+  };
 
   for (const p of body.projects ?? []) {
     if (typeof p.id !== 'string' || !p.id || typeof p.updated !== 'number') continue;
     const data = p.deleted ? null : (p.data ?? null);
-    if (data && data.length > MAX_ROW) {
+    if (data && data.length > MAX_ITEM) {
       rejected.push(`project:${p.id}`);
       continue;
     }
+    if (!(await newer('projects', 'id', p.id, p.updated))) continue;
+    const c = chunkStmts('project', p.id, data);
+    stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
         `INSERT INTO projects (user, id, data, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(user, id) DO UPDATE SET data = excluded.data, updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv
-         WHERE excluded.updated > projects.updated`,
-      ).bind(user, p.id, data, p.updated, p.deleted ? 1 : 0, rev()),
+         ON CONFLICT(user, id) DO UPDATE SET data = excluded.data, updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
+      ).bind(user, p.id, c.stored, p.updated, p.deleted ? 1 : 0, rev()),
     );
+    flushGroup(data?.length ?? 0);
   }
   for (const im of body.images ?? []) {
     if (typeof im.key !== 'string' || !im.key || typeof im.updated !== 'number') continue;
     const src = im.deleted ? null : (im.src ?? null);
-    if (src && src.length > MAX_ROW) {
+    if (src && src.length > MAX_ITEM) {
       rejected.push(`image:${im.key}`);
       continue;
     }
+    if (!(await newer('images', 'key', im.key, im.updated))) continue;
+    const c = chunkStmts('image', im.key, src);
+    stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
         `INSERT INTO images (user, key, src, zoom, x, y, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(user, key) DO UPDATE SET src = excluded.src, zoom = excluded.zoom, x = excluded.x, y = excluded.y,
-           updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv
-         WHERE excluded.updated > images.updated`,
-      ).bind(user, im.key, src, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev()),
+           updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
+      ).bind(user, im.key, c.stored, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev()),
     );
+    flushGroup(src?.length ?? 0);
   }
   if (body.settings && typeof body.settings.updated === 'number' && (body.settings.data ?? '').length < 100_000) {
     stmts.push(
@@ -300,8 +327,20 @@ async function sync(req: Request, env: Env) {
       ).bind(user, body.settings.data, body.settings.updated, rev()),
     );
   }
-  // D1 batches are transactional; chunk to keep each one modest
-  for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+  flushGroup(body.settings?.data?.length ?? 0);
+  // D1 batches are transactional; combine whole items up to ~8 MB / 50 statements per batch
+  let batch: D1PreparedStatement[] = [];
+  let batchBytes = 0;
+  for (const g of groups) {
+    if (batch.length && (batch.length + g.stmts.length > 50 || batchBytes + g.bytes > 8_000_000)) {
+      await env.DB.batch(batch);
+      batch = [];
+      batchBytes = 0;
+    }
+    batch.push(...g.stmts);
+    batchBytes += g.bytes;
+  }
+  if (batch.length) await env.DB.batch(batch);
 
   // ---- pull everything changed since the client's cursors (a little overlap; client dedupes) ----
   const sent = new Map<string, number>();
@@ -316,7 +355,13 @@ async function sync(req: Request, env: Env) {
     .bind(user, cur.p)
     .all<{ id: string; data: string | null; updated: number; deleted: number; srv: number }>();
   let pCursor = cur.p;
+  const unchunk = async (kind: string, key: string, v: string | null) => {
+    if (!v || !v.startsWith(CHUNKED)) return v;
+    const rows = await env.DB.prepare('SELECT data FROM chunks WHERE user = ? AND kind = ? AND key = ? ORDER BY seq').bind(user, kind, key).all<{ data: string }>();
+    return rows.results.map((r) => r.data).join('');
+  };
   for (const r of pr.results) {
+    if (!sent.has(`p:${r.id}`) || sent.get(`p:${r.id}`) !== r.updated) r.data = await unchunk('project', r.id, r.data);
     const size = r.data?.length ?? 0;
     if (projects.length && budget - size < 0) {
       more = true;
@@ -335,6 +380,7 @@ async function sync(req: Request, env: Env) {
     .all<{ key: string; src: string | null; zoom: number; x: number; y: number; updated: number; deleted: number; srv: number }>();
   let iCursor = cur.i;
   for (const r of ir.results) {
+    if (!sent.has(`i:${r.key}`) || sent.get(`i:${r.key}`) !== r.updated) r.src = await unchunk('image', r.key, r.src);
     const size = r.src?.length ?? 0;
     if ((images.length || projects.length) && budget - size < 0) {
       more = true;

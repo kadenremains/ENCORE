@@ -13,6 +13,7 @@ import { Records } from './views/stats/Records';
 import { Create } from './views/Create';
 import { FirstSync } from './views/FirstSync';
 import { initCloud, setOnSignedIn } from './lib/cloud';
+import { runMaintenance } from './lib/maintenance';
 import { useEditor } from './editor/editorStore';
 import type { CompareMode } from './lib/range';
 import type { RangeSpec } from './lib/types';
@@ -55,7 +56,8 @@ export default function App() {
   const route = useRoute();
 
   useEffect(() => {
-    init().then(startCloud);
+    // shrink oversized old pictures first so the first sync sends the light versions
+    init().then(runMaintenance).catch(() => {}).then(startCloud);
   }, [init]);
   const lib = useApp((s) => s.lib);
   const demo = useApp((s) => s.demo);

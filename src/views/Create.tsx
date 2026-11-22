@@ -6,7 +6,7 @@ import { SlideCanvas, backgroundCss } from '../render/SlideCanvas';
 import { navigate } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
 import { localChanged, markDeleted } from '../lib/changes';
-import { lastPushedAt, startSignIn, useCloud } from '../lib/cloud';
+import { isRejected, lastPushedAt, startSignIn, useCloud } from '../lib/cloud';
 
 export function Create() {
   const exploreRange = useApp((s) => s.exploreRange);
@@ -82,7 +82,9 @@ export function Create() {
                 </a>
                 <div className="project-name">{p.name}</div>
                 {cloud.token ? (
-                  p.updated > pushedAt ? (
+                  isRejected('project', p.id) ? (
+                    <div className="sync-badge pending" title={cloud.error ?? ''}>⚠ couldn't sync, retrying</div>
+                  ) : p.updated > pushedAt ? (
                     <div className="sync-badge pending">{cloud.status === 'syncing' ? '↻ uploading…' : '● not uploaded yet'}</div>
                   ) : (
                     <div className="sync-badge ok">✓ synced</div>
