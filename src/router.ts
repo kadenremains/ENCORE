@@ -95,3 +95,28 @@ export function useRoute(): Route {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
   return parseRoute(hash);
 }
+
+/**
+ * Clicking an in-app link starts the new page at the top. Back/forward keeps the browser's
+ * own scroll restoration, so returning to a list puts you where you were.
+ */
+let linkClicked = false;
+export function installScrollToTopOnLinks() {
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.('a[href^="#/"]') as HTMLAnchorElement | null;
+      if (!a || a.target === '_blank') return;
+      linkClicked = a.getAttribute('href') !== location.hash;
+    },
+    true,
+  );
+  window.addEventListener('hashchange', () => {
+    if (!linkClicked) return;
+    linkClicked = false;
+    window.scrollTo(0, 0);
+    // after the new page renders too (it can be taller/shorter than the old one)
+    requestAnimationFrame(() => window.scrollTo(0, 0));
+  });
+}
