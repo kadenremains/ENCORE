@@ -95,6 +95,9 @@ export default {
           return await authStart(url, env);
         case '/auth/callback':
           return await authCallback(url, env);
+        case '/auth/poll':
+          res = await authPoll(url, env);
+          break;
         case '/me':
           res = await me(req, env);
           break;
@@ -148,7 +151,10 @@ async function authStart(url: URL, env: Env) {
   if (!redirect) return json({ error: 'bad redirect' }, 400);
   const { key, secret } = await getKeys(env);
   if (!key || !secret) return Response.redirect(`${redirect}#auth_error=not_configured`, 302);
-  const cb = `${url.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`;
+  // `pending` lets the app that started sign-in pick the session up itself, even when Last.fm's
+  // approval happens in another browser (e.g. iOS opens home-screen apps' links in a separate view)
+  const pending = url.searchParams.get('pending');
+  const cb = `${url.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}${pending && /^[0-9a-f]{32}$/.test(pending) ? `&pending=${pending}` : ''}`;
   return Response.redirect(`https://www.last.fm/api/auth/?api_key=${key}&cb=${encodeURIComponent(cb)}`, 302);
 }
 
@@ -172,11 +178,30 @@ async function authCallback(url: URL, env: Env) {
   const name = body.session.name;
   const now = Date.now();
   const session = randomToken();
-  await env.DB.batch([
+  const pending = url.searchParams.get('pending');
+  const stmts = [
     env.DB.prepare('INSERT INTO users (name, display, created) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display').bind(name.toLowerCase(), name, now),
     env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(session, name.toLowerCase(), now, now),
-  ]);
+  ];
+  if (pending && /^[0-9a-f]{32}$/.test(pending)) {
+    // a second session for the app that's waiting (each device context gets its own token)
+    const waiting = randomToken();
+    stmts.push(env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(waiting, name.toLowerCase(), now, now));
+    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO pending_auth (id, token, user, created) VALUES (?, ?, ?, ?)').bind(pending, waiting, name, now));
+  }
+  await env.DB.batch(stmts);
   return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}`, 302);
+}
+
+/** The app polls this with the random id it started sign-in with; one-time pickup, 15 min window. */
+async function authPoll(url: URL, env: Env) {
+  const id = url.searchParams.get('id') ?? '';
+  if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
+  const row = await env.DB.prepare('SELECT token, user, created FROM pending_auth WHERE id = ?').bind(id).first<{ token: string; user: string; created: number }>();
+  if (!row) return json({ pending: true });
+  await env.DB.prepare('DELETE FROM pending_auth WHERE id = ? OR created < ?').bind(id, Date.now() - 15 * 60_000).run();
+  if (Date.now() - row.created > 15 * 60_000) return json({ pending: true });
+  return json({ token: row.token, user: row.user });
 }
 
 async function userFor(req: Request, env: Env): Promise<string | null> {

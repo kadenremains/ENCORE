@@ -45,6 +45,7 @@ export interface CloudState {
   lastSync: number | null;
   error: string | null;
   available: { lastfm: boolean; signIn: boolean } | null;
+  waiting: boolean;
 }
 
 export const useCloud = create<CloudState>(() => ({
@@ -53,6 +54,7 @@ export const useCloud = create<CloudState>(() => ({
   lastSync: Number(LS.get('sw.cloud.lastSync')) || null,
   error: null,
   available: null,
+  waiting: false,
 }));
 
 export const cloudEnabled = () => !!API_URL;
@@ -73,10 +75,86 @@ export async function checkHealth() {
   }
 }
 
+const PENDING = 'sw.cloud.pending';
+
+function isStandalone() {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
+}
+
+/**
+ * Start "Sign in with Last.fm". The app also registers a random pickup id and polls for the
+ * session, so it gets signed in even if Last.fm's approval happens in a different browser view
+ * (iOS opens links from home-screen apps in a separate view with its own storage).
+ */
 export function startSignIn() {
   if (!API_URL) return;
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  LS.set(PENDING, JSON.stringify({ id, at: Date.now() }));
   const back = location.origin + location.pathname;
-  location.href = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}`;
+  const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}`;
+  useCloud.setState({ waiting: true });
+  if (isStandalone()) {
+    window.open(url, '_blank');
+    pollPending();
+  } else location.href = url;
+}
+
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Check whether a sign-in we started has been approved (anywhere). */
+export async function pollPending(): Promise<boolean> {
+  clearTimeout(pollTimer);
+  let p: { id: string; at: number } | null = null;
+  try {
+    p = JSON.parse(LS.get(PENDING) || 'null');
+  } catch {
+    p = null;
+  }
+  if (!p || Date.now() - p.at > 15 * 60_000 || !API_URL) {
+    LS.set(PENDING, null);
+    useCloud.setState({ waiting: false });
+    return false;
+  }
+  if (useCloud.getState().token) {
+    LS.set(PENDING, null);
+    useCloud.setState({ waiting: false });
+    return true;
+  }
+  try {
+    const r = await fetch(`${API_URL}/auth/poll?id=${p.id}`);
+    const d = (await r.json()) as { token?: string; user?: string };
+    if (d.token && d.user) {
+      LS.set(PENDING, null);
+      adoptSession(d.token, d.user);
+      onSignedIn?.(d.user);
+      return true;
+    }
+  } catch {
+    /* offline: try again shortly */
+  }
+  useCloud.setState({ waiting: true });
+  pollTimer = setTimeout(() => void pollPending(), 2500);
+  return false;
+}
+
+export function cancelSignIn() {
+  clearTimeout(pollTimer);
+  LS.set(PENDING, null);
+  useCloud.setState({ waiting: false });
+}
+
+let onSignedIn: ((user: string) => void) | null = null;
+export function setOnSignedIn(fn: (user: string) => void) {
+  onSignedIn = fn;
+}
+
+function adoptSession(token: string, user: string) {
+  LS.set(K.auth, JSON.stringify({ token, user }));
+  // a fresh sign-in pulls everything and uploads everything already on this device
+  LS.set(K.cursor, null);
+  LS.set(K.pushedAt, null);
+  useCloud.setState({ token, user, error: null, waiting: false });
+  void syncNow();
 }
 
 /** If we just came back from "Sign in with Last.fm", store the session. */
@@ -90,11 +168,8 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
   const token = params.get('auth');
   const user = params.get('user');
   if (!token || !/^[0-9a-f]{64}$/.test(token) || !user) return { error: 'bad_response' };
-  LS.set(K.auth, JSON.stringify({ token, user }));
-  // a fresh sign-in pulls everything again and pushes everything local
-  LS.set(K.cursor, null);
-  LS.set(K.pushedAt, null);
-  useCloud.setState({ token, user, error: null });
+  LS.set(PENDING, null);
+  adoptSession(token, user);
   return { user };
 }
 
@@ -302,6 +377,11 @@ export function initCloud(h: Hooks) {
   setInterval(() => {
     if (document.visibilityState === 'visible') void syncNow();
   }, 60_000);
+  // finish a sign-in that was approved while we were away (e.g. in Safari)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && LS.get(PENDING)) void pollPending();
+  });
+  if (LS.get(PENDING)) void pollPending();
   void checkHealth();
   void syncNow();
 }
