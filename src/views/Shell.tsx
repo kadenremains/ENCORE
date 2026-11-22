@@ -6,7 +6,7 @@ import { RangePicker } from '../ui/controls';
 import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import type { CompareMode } from '../lib/range';
-import { signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -34,7 +34,8 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
   const { label } = useRangeStats();
   const [menu, setMenu] = useState(false);
   const cloud = useCloud();
-  const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' ? 'err' : 'ok') : '';
+  const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' || cloud.error ? 'err' : cloud.dirty ? 'dirty' : 'ok') : '';
+  const [hideErr, setHideErr] = useState<string | null>(null);
   const isChartTab = (r: Route) => (r.name === 'top' || r.name === 'entity');
 
   return (
@@ -59,7 +60,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                       <span className={`cloud-dot ${dot}`} />
                       Syncing as <b>{cloud.user}</b>
                       <br />
-                      {cloud.status === 'syncing' ? 'Syncing…' : cloud.status === 'error' ? cloud.error : `Last synced ${ago(cloud.lastSync)}`}
+                      {cloud.status === 'syncing' ? 'Syncing…' : cloud.status === 'error' ? cloud.error : cloud.dirty ? 'Changes waiting to upload…' : `All changes synced · ${ago(cloud.lastSync)}`}
                       {cloud.error && cloud.status !== 'error' && (
                         <>
                           <br />
@@ -71,7 +72,17 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                   {cloud.token ? (
                     <button onClick={() => void syncNow()}>Sync now</button>
                   ) : (
-                    cloud.available?.signIn && <button onClick={startSignIn}>Sign in to sync devices</button>
+                    cloud.available?.signIn && !cloud.waiting && <button onClick={startSignIn}>Sign in to sync devices</button>
+                  )}
+                  {cloud.waiting && !cloud.token && (
+                    <>
+                      <div className="menu-section">
+                        <span className="cloud-dot busy" />
+                        Waiting for you to approve on Last.fm…
+                      </div>
+                      <button onClick={() => void pollPending()}>I approved it, check now</button>
+                      <button onClick={cancelSignIn}>Cancel sign-in</button>
+                    </>
                   )}
                   <a href="#/images">Manage images</a>
                   {user?.url && !demo && (
@@ -107,6 +118,30 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
         </nav>
       </header>
 
+      {cloud.waiting && !cloud.token && (
+        <div className="demo-banner notice">
+          <span className="cloud-dot busy" /> Approve Encore on Last.fm, then come back here. It signs in automatically.{' '}
+          <button className="link" onClick={() => void pollPending()}>
+            Check now
+          </button>{' '}
+          ·{' '}
+          <button className="link" onClick={cancelSignIn}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {cloud.token && cloud.error && hideErr !== cloud.error && (
+        <div className="demo-banner notice err">
+          <span>{cloud.error}</span>{' '}
+          <button className="link" onClick={() => void syncNow()}>
+            Retry
+          </button>{' '}
+          ·{' '}
+          <button className="link" onClick={() => setHideErr(cloud.error)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {demo && (
         <div className="demo-banner">
           You're looking at <b>demo data</b>.{' '}

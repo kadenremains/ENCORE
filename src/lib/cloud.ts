@@ -46,6 +46,8 @@ export interface CloudState {
   error: string | null;
   available: { lastfm: boolean; signIn: boolean } | null;
   waiting: boolean;
+  /** local edits not uploaded yet */
+  dirty: boolean;
 }
 
 export const useCloud = create<CloudState>(() => ({
@@ -55,7 +57,10 @@ export const useCloud = create<CloudState>(() => ({
   error: null,
   available: null,
   waiting: false,
+  dirty: false,
 }));
+
+let changeSeq = 0;
 
 export const cloudEnabled = () => !!API_URL;
 
@@ -221,10 +226,13 @@ let running: Promise<void> | null = null;
 let again = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-export function scheduleSync(delay = 3000) {
+export function scheduleSync(delay = 1200) {
   if (!useCloud.getState().token) return;
   clearTimeout(timer);
-  timer = setTimeout(() => void syncNow(), delay);
+  timer = setTimeout(() => {
+    timer = undefined;
+    void syncNow();
+  }, delay);
 }
 
 export function syncNow(): Promise<void> {
@@ -262,6 +270,7 @@ async function doSync() {
   const { token } = useCloud.getState();
   if (!token || !API_URL) return;
   useCloud.setState({ status: 'syncing', error: null });
+  const seqAtStart = changeSeq;
   try {
     const startedAt = Date.now();
     const pushedAt = Number(LS.get(K.pushedAt)) || 0;
@@ -300,6 +309,9 @@ async function doSync() {
 
     let cursor = JSON.parse(LS.get(K.cursor) || '{"p":0,"i":0,"s":0}');
     const rejected: string[] = [];
+    const sizes = new Map<string, number>();
+    projects.forEach((p) => sizes.set(`project:${p.id}`, p.data?.length ?? 0));
+    images.forEach((im) => sizes.set(`image:${im.key}`, im.src?.length ?? 0));
     let res: SyncResponse | null = null;
     for (let b = 0; b < batches.length; b++) {
       res = await post(token, { cursor, ...batches[b], settings: b === 0 ? settings : null });
@@ -318,12 +330,29 @@ async function doSync() {
     LS.set('sw.cloud.lastSync', String(Date.now()));
     useCloud.setState({
       status: 'idle',
+      dirty: changeSeq !== seqAtStart,
       lastSync: Date.now(),
-      error: rejected.length ? `${rejected.length} item${rejected.length > 1 ? 's were' : ' was'} too large to sync (over 2 MB).` : null,
+      error: rejected.length ? await describeRejected(rejected, sizes) : null,
     });
   } catch (e) {
     useCloud.setState({ status: 'error', error: (e as Error).message });
   }
+}
+
+/** Human-readable "what didn't sync and why". */
+async function describeRejected(keys: string[], sizes: Map<string, number>) {
+  const mb = (n: number) => `${(n / 1_000_000).toFixed(1)} MB`;
+  const names: string[] = [];
+  for (const k of keys) {
+    const i = k.indexOf(':');
+    const kind = k.slice(0, i);
+    const id = k.slice(i + 1);
+    if (kind === 'project') {
+      const p = await db.projects.get(id);
+      names.push(`“${p?.name ?? 'a wrapped'}” (${mb(sizes.get(k) ?? 0)})`);
+    } else names.push(`a picture (${mb(sizes.get(k) ?? 0)})`);
+  }
+  return `Not synced: ${names.join(', ')}. Items over 2 MB can't sync. Usually it's a big uploaded picture inside it; re-uploading it will shrink it.`;
 }
 
 async function applyRemote(res: SyncResponse) {
@@ -370,9 +399,26 @@ export function initCloud(h: Hooks) {
   hooks = h;
   if (started || !API_URL) return;
   started = true;
-  setChangeListener(() => scheduleSync());
+  setChangeListener(() => {
+    changeSeq++;
+    if (useCloud.getState().token) useCloud.setState({ dirty: true });
+    scheduleSync();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleSync(300);
+    // leaving the app: upload pending edits right away instead of waiting for the timer
+    else if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+      void syncNow();
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+      void syncNow();
+    }
   });
   setInterval(() => {
     if (document.visibilityState === 'visible') void syncNow();

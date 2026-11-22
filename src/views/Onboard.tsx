@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Logo } from '../ui/Logo';
 import { useApp } from '../store';
-import { checkHealth, startSignIn, useCloud } from '../lib/cloud';
+import { cancelSignIn, checkHealth, pollPending, startSignIn, useCloud } from '../lib/cloud';
 import { API_URL } from '../config';
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -13,6 +13,7 @@ const AUTH_ERRORS: Record<string, string> = {
 export function Onboard() {
   const { connect, startDemo, username: savedUser, apiKey: savedKey, authError } = useApp();
   const available = useCloud((s) => s.available);
+  const waiting = useCloud((s) => s.waiting);
   const builtInKey = (import.meta.env.VITE_LASTFM_API_KEY as string | undefined) || '';
   const [username, setUsername] = useState(savedUser);
   const [apiKey, setApiKey] = useState(savedKey || builtInKey);
@@ -66,9 +67,23 @@ export function Onboard() {
 
         {signIn && (
           <>
-            <button className="btn primary big" onClick={startSignIn}>
-              Sign in with Last.fm
-            </button>
+            {waiting ? (
+              <div className="waiting-box">
+                <span className="cloud-dot busy" /> Approve Encore on Last.fm, then come back here. It signs in by itself.
+                <div className="row gap" style={{ marginTop: 10 }}>
+                  <button className="btn primary" onClick={() => void pollPending()}>
+                    I approved it
+                  </button>
+                  <button className="btn" onClick={cancelSignIn}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn primary big" onClick={startSignIn}>
+                Sign in with Last.fm
+              </button>
+            )}
             <p className="muted small" style={{ margin: 0 }}>
               Syncs your wrappeds, pictures and settings across your devices.
             </p>

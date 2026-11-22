@@ -3127,3 +3127,24 @@ a.hl:hover {
     opacity: 0.3;
   }
 }
+.cloud-dot.dirty {
+  background: #e6c36a;
+}
+.demo-banner.notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.demo-banner.notice.err {
+  border-color: rgba(208, 106, 106, 0.5);
+  color: #e9b4b4;
+}
+.waiting-box {
+  border: 1px solid var(--line-2);
+  padding: 14px;
+  font-size: 12px;
+  color: var(--soft);
+  line-height: 1.5;
+}

@@ -327,15 +327,38 @@ export async function fileToDataUrl(file: File, max = 1600): Promise<string> {
       i.onerror = rej;
       i.src = url;
     });
-    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.round(img.naturalWidth * scale);
-    const h = Math.round(img.naturalHeight * scale);
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    c.getContext('2d')!.drawImage(img, 0, 0, w, h);
-    const png = file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp';
-    return c.toDataURL(png ? 'image/png' : 'image/jpeg', 0.92);
+    const draw = (limit: number) => {
+      const scale = Math.min(1, limit / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    };
+    let c = draw(max);
+    // keep PNG only when the picture actually has transparency
+    let alpha = false;
+    if (file.type === 'image/png' || file.type === 'image/gif' || file.type === 'image/webp') {
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      for (let i = 3; i < d.length; i += 16) if (d[i] < 250) {
+        alpha = true;
+        break;
+      }
+    }
+    // stay well under the 2 MB sync limit (and keep wrappeds light): aim for < 700 KB
+    const TARGET = 700_000;
+    let q = 0.9;
+    let limit = max;
+    let out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+    for (let tries = 0; out.length > TARGET && tries < 8; tries++) {
+      if (!alpha && q > 0.72) q -= 0.06;
+      else {
+        limit = Math.round(limit * 0.8);
+        c = draw(limit);
+      }
+      out = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q);
+    }
+    return out;
   } finally {
     URL.revokeObjectURL(url);
   }

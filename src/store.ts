@@ -58,6 +58,8 @@ interface AppState {
   startDemo: () => Promise<void>;
   runSync: () => Promise<void>;
   disconnect: () => Promise<void>;
+  /** switch to a Last.fm account that just signed in (from another browser view) */
+  adoptUser: (name: string) => Promise<void>;
 }
 
 function installHints(lib: Library) {
@@ -207,6 +209,19 @@ export const useApp = create<AppState>((set, get) => ({
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });
     }
+  },
+
+  adoptUser: async (name) => {
+    const { username, demo } = get();
+    if (!demo && username && username.toLowerCase() === name.toLowerCase()) return;
+    if (demo) {
+      await db.scrobbles.clear();
+      await db.meta.clear();
+    }
+    LS.set('sw.username', name);
+    LS.set('sw.demo', '0');
+    set({ username: name, demo: false, user: null, view: 'app', lib: await loadLibraryFromDb() });
+    await get().runSync();
   },
 
   disconnect: async () => {

@@ -12,12 +12,13 @@ import { Listening } from './views/stats/Listening';
 import { Records } from './views/stats/Records';
 import { Create } from './views/Create';
 import { FirstSync } from './views/FirstSync';
-import { initCloud } from './lib/cloud';
+import { initCloud, setOnSignedIn } from './lib/cloud';
 import { useEditor } from './editor/editorStore';
 import type { CompareMode } from './lib/range';
 import type { RangeSpec } from './lib/types';
 
 function startCloud() {
+  setOnSignedIn((name) => void useApp.getState().adoptUser(name));
   initCloud({
     getSettings: () => {
       const { exploreRange, compare } = useApp.getState();
