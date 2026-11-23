@@ -31,10 +31,26 @@ export async function renderNodeToBlob(node: HTMLElement, w: number, h: number, 
   if (!fontCss) fontCss = getFontEmbedCSS(node).catch(() => '');
   const fontEmbedCSS = await fontCss;
   // includeQueryParams: links that differ only after "?" (e.g. Google image links) are different pictures
-  const opts = { width: w, height: h, pixelRatio, fontEmbedCSS, cacheBust: false, includeQueryParams: true, style: { transform: 'none', left: '0', top: '0' } };
+  // imagePlaceholder: a picture that fails to load is left blank instead of failing the whole export
+  const opts = {
+    width: w,
+    height: h,
+    pixelRatio,
+    fontEmbedCSS,
+    cacheBust: false,
+    includeQueryParams: true,
+    imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    style: { transform: 'none', left: '0', top: '0' },
+  };
   // Safari sometimes drops images on the first pass; render twice there.
   if (isSafari) await toCanvas(node, opts).catch(() => {});
-  const canvas = await toCanvas(node, opts);
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await toCanvas(node, opts);
+  } catch (e) {
+    // html-to-image rejects with a DOM Event (no message) when a resource fails
+    throw new Error(e instanceof Error && e.message ? e.message : "a picture couldn't be loaded; try again in a moment");
+  }
   return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Export failed'))), 'image/png'));
 }
 

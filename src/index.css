@@ -3220,3 +3220,16 @@ a.hl:hover {
 .rangebar-label {
   flex-wrap: wrap;
 }
+.my-picture {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.my-picture-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border: 1px solid var(--line-2);
+  flex: 0 0 64px;
+}

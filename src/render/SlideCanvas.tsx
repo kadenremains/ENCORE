@@ -3,6 +3,8 @@ import type { Library } from '../lib/library';
 import type { Project, Slide, Theme } from '../editor/model';
 import { BlockView, type RenderCtx } from './blocks';
 import { EntityImg, GRAIN_URL } from './primitives';
+import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useImagesVersion } from '../lib/images';
+import { useApp } from '../store';
 import { getStats } from '../lib/library';
 import { resolveRange } from '../lib/range';
 
@@ -56,6 +58,7 @@ export const SlideCanvas = forwardRef<HTMLDivElement, Props>(function SlideCanva
       }}
     >
       {(theme.bgImageSource === 'artist' || theme.bgImageSource === 'album') && <AutoBackground lib={lib} project={project} theme={theme} />}
+      {(theme.bgImageSource === 'avatar' || theme.bgImageSource === 'mine') && <AccountBackground theme={theme} />}
       {theme.bgImage && (theme.bgImageSource ?? 'upload') === 'upload' && (
         <img
           src={theme.bgImage}
@@ -114,5 +117,30 @@ function Frame({ w, h, color }: { w: number; h: number; color: string }) {
       {corner('br', { right: inset, bottom: inset }, 180)}
       {corner('bl', { left: inset, bottom: inset }, 270)}
     </div>
+  );
+}
+
+/** Your Last.fm profile picture, or your saved account picture. */
+function AccountBackground({ theme }: { theme: Theme }) {
+  useImagesVersion(); // re-render when "My picture" changes or syncs in
+  const avatar = useApp((st) => st.user?.image);
+  const src = theme.bgImageSource === 'mine' ? getOverride(ACCOUNT_BG_KEY)?.src : bigAvatar(avatar);
+  if (!src) return null;
+  const blur = theme.bgImageBlur;
+  return (
+    <img
+      src={src}
+      alt=""
+      crossOrigin={src.startsWith('data:') ? undefined : 'anonymous'}
+      style={{
+        position: 'absolute',
+        inset: blur ? -blur * 2 : 0,
+        width: blur ? `calc(100% + ${blur * 4}px)` : '100%',
+        height: blur ? `calc(100% + ${blur * 4}px)` : '100%',
+        objectFit: 'cover',
+        opacity: theme.bgImageOpacity,
+        filter: blur ? `blur(${blur}px)` : undefined,
+      }}
+    />
   );
 }

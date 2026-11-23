@@ -55,7 +55,8 @@ export interface Theme {
   grain: number; // 0..1
   bgImage?: string;
   /** where the background image comes from: an upload, or your #1 artist / album art */
-  bgImageSource?: 'upload' | 'artist' | 'album';
+  /** upload = this wrapped only; mine = your account picture; avatar = Last.fm profile picture */
+  bgImageSource?: 'upload' | 'artist' | 'album' | 'avatar' | 'mine';
   bgImageOpacity: number;
   bgImageBlur: number;
   /** font for artist / album / song names in lists (defaults to body font) */

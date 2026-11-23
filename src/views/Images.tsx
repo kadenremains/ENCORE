@@ -18,7 +18,7 @@ export function Images() {
   const range = useMemo(() => resolveRange(exploreRange), [exploreRange]);
   if (!lib) return null;
   const stats = getStats(lib, range);
-  const custom = new Set(allOverrides().map((o) => o.key));
+  const custom = new Set(allOverrides().map((o) => o.key).filter((k) => !k.startsWith('account:')));
 
   let items: { kind: EntityKind; name: string; artist: string; count: number }[];
   if (q.trim()) {

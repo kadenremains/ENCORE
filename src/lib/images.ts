@@ -444,3 +444,11 @@ export async function shrinkStoredOverrides(): Promise<number> {
   }
   return changed;
 }
+
+/** Your own background picture: one per account, synced, reused by every wrapped that picks "My picture". */
+export const ACCOUNT_BG_KEY = 'account:background';
+
+/** Last.fm profile picture at a bigger size. */
+export function bigAvatar(url?: string) {
+  return url ? url.replace(/\/i\/u\/[^/]+\//, '/i/u/600x600/') : undefined;
+}

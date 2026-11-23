@@ -51,6 +51,9 @@ export const albumKey = (artist: string, album: string) => `${artist.toLowerCase
 
 let versionCounter = 1;
 
+/** Last.fm can't serve animated GIF covers at 600x600 (it errors), so use the size it does serve. */
+const fixLastfmImg = (url: string) => (/\.gif$/i.test(url) ? url.replace('/i/u/600x600/', '/i/u/300x300/') : url);
+
 /** [album name, album artist, plays] as Last.fm groups albums (user.getTopAlbums). */
 export type AlbumArtistList = [string, string, number][];
 
@@ -199,7 +202,7 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
         albums.push({ name: r.al, artist: aai });
         alFirst.push(r.ts);
       } else albums[x].name = r.al;
-      if (r.img) albums[x].img = r.img;
+      if (r.img) albums[x].img = fixLastfmImg(r.img);
       ali = x;
     }
     album[i] = ali;
@@ -217,7 +220,7 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
     }
     if (singleKey) {
       if (tracks[ti].album < 0) tracks[ti].single = singleKey;
-      if (r.img) tracks[ti].img = r.img; // keep the single's cover for the song
+      if (r.img) tracks[ti].img = fixLastfmImg(r.img); // keep the single's cover for the song
     } else if (ali >= 0) tracks[ti].single = undefined;
     track[i] = ti;
   }

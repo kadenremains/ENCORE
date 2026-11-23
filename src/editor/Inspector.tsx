@@ -25,6 +25,7 @@ import { blockRange, imageBlockEntity, TOKENS, defaultStatLabel, type RenderCtx 
 import { slideTheme, backgroundCss } from '../render/SlideCanvas';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
 import { EntityImg } from '../render/primitives';
+import { ACCOUNT_BG_KEY, getOverride, removeOverride, setOverride, useImagesVersion } from '../lib/images';
 import type { EntityKind } from '../lib/types';
 
 const ENTITY_OPTS: { value: EntityKind; label: string }[] = [
@@ -713,6 +714,7 @@ function ProjectInspector({ project }: { project: Project }) {
   useEffect(() => setBgScope(slide.theme ? 'slide' : 'all'), [slide.id, slide.theme]);
   const theme = project.theme;
   const eff = slideTheme(project, slide);
+  const avatar = useApp((st) => st.user?.image);
   const setTheme = (patch: Partial<Theme>, merge?: string) =>
     st.update((p) => {
       p.theme = { ...p.theme, ...patch };
@@ -844,30 +846,38 @@ function ProjectInspector({ project }: { project: Project }) {
           <Slider value={eff.grain} min={0} max={1} step={0.01} onChange={(v) => setBg({ grain: v }, 'grain')} />
         </Field>
         <Field label="Background image">
-          <Segmented
-            value={eff.bgImageSource === 'artist' || eff.bgImageSource === 'album' ? eff.bgImageSource : eff.bgImage ? 'upload' : 'none'}
-            onChange={(v) => setBg(v === 'none' ? { bgImageSource: 'upload', bgImage: undefined } : { bgImageSource: v as Theme['bgImageSource'], ...(v !== 'upload' && eff.bgImageBlur === 0 ? { bgImageBlur: 40, bgImageOpacity: 0.2 } : {}) })}
+          <Select
+            value={eff.bgImageSource && eff.bgImageSource !== 'upload' ? eff.bgImageSource : eff.bgImage ? 'upload' : 'none'}
+            onChange={(v) =>
+              setBg(
+                v === 'none'
+                  ? { bgImageSource: 'upload', bgImage: undefined }
+                  : { bgImageSource: v as Theme['bgImageSource'], ...((v === 'artist' || v === 'album') && eff.bgImageBlur === 0 ? { bgImageBlur: 40, bgImageOpacity: 0.2 } : {}) },
+              )
+            }
             options={[
               { value: 'none', label: 'None' },
-              { value: 'album', label: '#1 album' },
-              { value: 'artist', label: '#1 artist' },
-              { value: 'upload', label: 'Upload' },
+              { value: 'album', label: 'Your #1 album' },
+              { value: 'artist', label: 'Your #1 artist' },
+              { value: 'avatar', label: 'Your Last.fm profile picture' },
+              { value: 'mine', label: 'My picture (saved to your account)' },
+              ...(eff.bgImageSource === 'upload' && eff.bgImage ? [{ value: 'upload', label: 'Picture uploaded to this wrapped' }] : []),
             ]}
           />
         </Field>
-        {(eff.bgImageSource ?? 'upload') === 'upload' && (
+        {eff.bgImageSource === 'mine' && <MyPictureControls />}
+        {eff.bgImageSource === 'avatar' && !avatar && <p className="muted small">Your Last.fm profile doesn't have a picture yet. Add one on last.fm and it'll show up here after the next sync.</p>}
+        {eff.bgImageSource === 'upload' && eff.bgImage && (
           <div className="row gap">
             <UploadButton className="btn" onImage={(src) => setBg({ bgImage: src, bgImageSource: 'upload' })}>
-              {eff.bgImage ? 'Replace image' : 'Upload image'}
+              Replace image
             </UploadButton>
-            {eff.bgImage && (
-              <button className="btn danger" onClick={() => setBg({ bgImage: undefined })}>
-                Remove
-              </button>
-            )}
+            <button className="btn danger" onClick={() => setBg({ bgImage: undefined })}>
+              Remove
+            </button>
           </div>
         )}
-        {(eff.bgImage || eff.bgImageSource === 'artist' || eff.bgImageSource === 'album') && (
+        {(eff.bgImage || (eff.bgImageSource && eff.bgImageSource !== 'upload')) && (
           <>
             <Field label="Image opacity">
               <Slider value={eff.bgImageOpacity} min={0} max={1} step={0.01} onChange={(v) => setBg({ bgImageOpacity: v }, 'bgio')} />
@@ -916,5 +926,29 @@ function ProjectInspector({ project }: { project: Project }) {
         </Field>
       </Section>
     </>
+  );
+}
+
+/** Upload / replace / remove the account-wide background picture. */
+function MyPictureControls() {
+  useImagesVersion();
+  const mine = getOverride(ACCOUNT_BG_KEY);
+  return (
+    <div className="my-picture">
+      {mine && <img src={mine.src} alt="" className="my-picture-thumb" />}
+      <div>
+        <div className="row gap wrap">
+          <UploadButton className="btn" onImage={(src) => void setOverride({ key: ACCOUNT_BG_KEY, src, zoom: 1, x: 50, y: 50 })}>
+            {mine ? 'Replace my picture' : 'Upload my picture'}
+          </UploadButton>
+          {mine && (
+            <button className="btn danger" onClick={() => void removeOverride(ACCOUNT_BG_KEY)}>
+              Remove
+            </button>
+          )}
+        </div>
+        <p className="muted small">Saved to your account and synced to your devices. Every wrapped using “My picture” updates when you replace it.</p>
+      </div>
+    </div>
   );
 }

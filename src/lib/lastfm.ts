@@ -65,8 +65,8 @@ export function bestImage(images?: LfImage[]): string | undefined {
   if (!images?.length) return undefined;
   const url = images[images.length - 1]['#text'] || images.find((i) => i['#text'])?.['#text'];
   if (!url || url.includes(LASTFM_PLACEHOLDER)) return undefined;
-  // upgrade to a larger rendition
-  return url.replace(/\/i\/u\/[^/]+\//, '/i/u/600x600/');
+  // upgrade to a larger rendition (Last.fm can't resize animated GIFs, so those stay as they are)
+  return /\.gif$/i.test(url) ? url : url.replace(/\/i\/u\/[^/]+\//, '/i/u/600x600/');
 }
 
 export async function fetchUserInfo(user: string, apiKey: string): Promise<UserInfo> {
