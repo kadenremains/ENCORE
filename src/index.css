@@ -1057,7 +1057,13 @@ textarea.text-input {
   margin-bottom: 16px;
 }
 .export-previews img {
-  height: 320px;
+  /* whole slide visible at any shape: wide slides shrink to the window's width */
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(320px, 45vh);
+  object-fit: contain;
   border-radius: 3px;
   border: 1px solid var(--line-2);
 }

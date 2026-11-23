@@ -25,9 +25,75 @@ async function waitForImages(node: HTMLElement, timeout = 8000) {
   );
 }
 
+const scaleOf = (t: string) => {
+  const m = /scale\(([\d.]+)/.exec(t);
+  return m ? Number(m[1]) || 1 : 1;
+};
+
+/**
+ * Swap every picture in the slide for a copy at exactly the resolution the export needs.
+ * Phone photos and 1000px artist pictures make the snapshot huge, and Safari drops the
+ * biggest pictures from it when they aren't decoded in time. Returns a function that undoes it.
+ */
+async function downsizeImages(node: HTMLElement, pixelRatio: number): Promise<() => void> {
+  const restore: (() => void)[] = [];
+  await Promise.all(
+    [...node.querySelectorAll('img')].map(async (img) => {
+      if (!img.naturalWidth || !img.offsetWidth) return;
+      const need = Math.min(2400, Math.ceil(Math.max(img.offsetWidth, img.offsetHeight) * pixelRatio * scaleOf(img.style.transform)));
+      const natural = Math.max(img.naturalWidth, img.naturalHeight);
+      const k = Math.min(1, need / natural);
+      // already small and embedded: nothing to gain
+      if (k > 0.85 && img.src.startsWith('data:')) return;
+      try {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * k));
+        c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        const g = c.getContext('2d')!;
+        g.imageSmoothingQuality = 'high';
+        g.drawImage(img, 0, 0, c.width, c.height);
+        const alpha = /^data:image\/(png|gif|webp)|\.(png|gif|webp)(\?|$)/i.test(img.src);
+        const small = alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.92);
+        const { src, srcset } = img;
+        img.removeAttribute('srcset');
+        img.src = small;
+        await img.decode().catch(() => {});
+        restore.push(() => {
+          img.src = src;
+          if (srcset) img.srcset = srcset;
+        });
+      } catch {
+        /* the site didn't allow reading the picture; leave it as it is */
+      }
+    }),
+  );
+  return () => restore.forEach((f) => f());
+}
+
+/** A tiny fingerprint of a rendered canvas, to tell whether another pass changed anything. */
+function fingerprint(canvas: HTMLCanvasElement) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 24;
+  const g = c.getContext('2d')!;
+  g.drawImage(canvas, 0, 0, 24, 24);
+  const d = g.getImageData(0, 0, 24, 24).data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i++) sum = (sum * 31 + d[i]) % 1_000_000_007;
+  return sum;
+}
+
 export async function renderNodeToBlob(node: HTMLElement, w: number, h: number, pixelRatio: number): Promise<Blob> {
   await document.fonts.ready;
   await waitForImages(node);
+  const undo = await downsizeImages(node, pixelRatio);
+  try {
+    return await render(node, w, h, pixelRatio);
+  } finally {
+    undo();
+  }
+}
+
+async function render(node: HTMLElement, w: number, h: number, pixelRatio: number): Promise<Blob> {
   if (!fontCss) fontCss = getFontEmbedCSS(node).catch(() => '');
   const fontEmbedCSS = await fontCss;
   // includeQueryParams: links that differ only after "?" (e.g. Google image links) are different pictures
@@ -42,11 +108,21 @@ export async function renderNodeToBlob(node: HTMLElement, w: number, h: number, 
     imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     style: { transform: 'none', left: '0', top: '0' },
   };
-  // Safari sometimes drops images on the first pass; render twice there.
-  if (isSafari) await toCanvas(node, opts).catch(() => {});
   let canvas: HTMLCanvasElement;
   try {
     canvas = await toCanvas(node, opts);
+    // Safari draws pictures into the snapshot only once they've decoded, so early passes can
+    // come out with pictures missing. Keep rendering until two passes in a row match.
+    if (isSafari) {
+      let last = fingerprint(canvas);
+      for (let pass = 0; pass < 5; pass++) {
+        const next = await toCanvas(node, opts);
+        const fp = fingerprint(next);
+        canvas = next;
+        if (fp === last) break;
+        last = fp;
+      }
+    }
   } catch (e) {
     // html-to-image rejects with a DOM Event (no message) when a resource fails
     throw new Error(e instanceof Error && e.message ? e.message : "a picture couldn't be loaded; try again in a moment");
