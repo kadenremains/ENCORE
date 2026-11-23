@@ -287,8 +287,8 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
               <span className="field-label">Quality</span>
               <div className="segmented">
                 {[1, 2, 3].map((r) => (
-                  <button key={r} className={ratio === r ? 'on' : ''} onClick={() => setRatio(r)}>
-                    {r}× · {project.format.w * r}×{project.format.h * r}
+                  <button key={r} className={`quality-opt ${ratio === r ? 'on' : ''}`} onClick={() => setRatio(r)}>
+                    {r}×<small>{project.format.w * r}×{project.format.h * r}</small>
                   </button>
                 ))}
               </div>
