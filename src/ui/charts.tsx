@@ -116,6 +116,8 @@ export interface Bar {
   tip?: string;
   axis?: string;
   dim?: boolean;
+  /** days of skipped break right before this bar */
+  afterBreak?: number;
 }
 
 export function BarChart({ data, height = 160, highlightMax = true, compare }: { data: Bar[]; height?: number; highlightMax?: boolean; compare?: number[] }) {
@@ -128,7 +130,7 @@ export function BarChart({ data, height = 160, highlightMax = true, compare }: {
       <div className="barchart-tip">{h !== null ? (data[h].tip ?? `${data[h].label} · ${fmtNum(data[h].value)} plays`) : ' '}</div>
       <div className="barchart-bars" style={{ height, gap: data.length > 60 ? 1 : data.length > 30 ? 2 : 4 }}>
         {data.map((d, i) => (
-          <div key={i} className={`bc-col ${h === i ? 'hover' : ''}`} onPointerEnter={() => setHover(i)} onClick={() => setHover(i)}>
+          <div key={i} className={`bc-col ${h === i ? 'hover' : ''} ${d.afterBreak ? 'after-break' : ''}`} onPointerEnter={() => setHover(i)} onClick={() => setHover(i)}>
             {compare && <span className="bc-ghost" style={{ height: `${((compare[i] ?? 0) / max) * 100}%` }} />}
             <span className={`bc-bar ${highlightMax && i === peak ? 'peak' : ''} ${d.dim ? 'dim' : ''}`} style={{ height: `${(d.value / max) * 100}%` }} />
           </div>

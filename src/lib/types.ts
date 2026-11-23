@@ -23,6 +23,8 @@ export interface UserInfo {
 export interface TimeRange {
   from: number;
   to: number;
+  /** skip stretches of at least this many days with no scrobbles (breaks) */
+  gapDays?: number;
 }
 
 export type RangePreset =
@@ -42,6 +44,8 @@ export interface RangeSpec {
   preset: RangePreset;
   /** for preset 'year' */
   year?: number;
+  /** skip breaks: stretches of at least this many days with no scrobbles */
+  gapDays?: number;
   /** ISO date strings (yyyy-mm-dd), inclusive, used for custom */
   start?: string;
   end?: string;

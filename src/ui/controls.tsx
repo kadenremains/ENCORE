@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { RANGE_PRESETS, resolveRange, toISODate } from '../lib/range';
+import { GAP_OPTIONS, RANGE_PRESETS, resolveRange, toISODate } from '../lib/range';
 import type { RangeSpec } from '../lib/types';
 import { fileToDataUrl } from '../lib/images';
 import { useApp } from '../store';
@@ -142,9 +142,10 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
         value={selected}
         onChange={(e) => {
           const v = e.target.value;
-          if (v.startsWith('y')) onChange({ preset: 'year', year: Number(v.slice(1)) });
-          else if (v === 'custom') onChange({ preset: 'custom', start, end });
-          else onChange({ preset: v as RangeSpec['preset'] });
+          const keep = value.gapDays ? { gapDays: value.gapDays } : {};
+          if (v.startsWith('y')) onChange({ preset: 'year', year: Number(v.slice(1)), ...keep });
+          else if (v === 'custom') onChange({ preset: 'custom', start, end, ...keep });
+          else onChange({ preset: v as RangeSpec['preset'], ...keep });
         }}
       >
         {presets.map((p) => (
@@ -162,11 +163,29 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
       </select>
       {value.preset === 'custom' && (
         <div className="dates">
-          <input type="date" min={minISO} max={end} value={start} onChange={(e) => e.target.value && onChange({ preset: 'custom', start: clamp(e.target.value), end })} />
+          <input type="date" min={minISO} max={end} value={start} onChange={(e) => e.target.value && onChange({ ...value, preset: 'custom', start: clamp(e.target.value), end })} />
           <span>→</span>
-          <input type="date" min={start} max={today} value={end} onChange={(e) => e.target.value && onChange({ preset: 'custom', start, end: clamp(e.target.value) })} />
+          <input type="date" min={start} max={today} value={end} onChange={(e) => e.target.value && onChange({ ...value, preset: 'custom', start, end: clamp(e.target.value) })} />
         </div>
       )}
+      <select
+        className={`select gap-select ${value.gapDays ? 'on' : ''}`}
+        value={value.gapDays ?? 0}
+        title="Leave long stretches with no scrobbles out of averages, day counts and charts"
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          const next = { ...value };
+          if (n) next.gapDays = n;
+          else delete next.gapDays;
+          onChange(next);
+        }}
+      >
+        {GAP_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

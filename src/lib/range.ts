@@ -26,6 +26,19 @@ export function toISODate(d: Date) {
 }
 
 export function resolveRange(spec: RangeSpec, now = new Date()): TimeRange {
+  const r = resolveDates(spec, now);
+  return spec.gapDays ? { ...r, gapDays: spec.gapDays } : r;
+}
+
+export const GAP_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Keep breaks' },
+  { value: 14, label: 'Skip breaks of 2+ weeks' },
+  { value: 30, label: 'Skip breaks of 1+ month' },
+  { value: 60, label: 'Skip breaks of 2+ months' },
+  { value: 90, label: 'Skip breaks of 3+ months' },
+];
+
+function resolveDates(spec: RangeSpec, now: Date): TimeRange {
   const y = now.getFullYear();
   const m = now.getMonth();
   const today = new Date(y, m, now.getDate());
@@ -65,6 +78,11 @@ export function resolveRange(spec: RangeSpec, now = new Date()): TimeRange {
 
 /** The equal-length period right before the range (calendar-aware for years / months). */
 export function previousRange(spec: RangeSpec, r: TimeRange): TimeRange {
+  const p = previousDates(spec, r);
+  return r.gapDays ? { ...p, gapDays: r.gapDays } : p;
+}
+
+function previousDates(spec: RangeSpec, r: TimeRange): TimeRange {
   const from = new Date(r.from * 1000);
   if (spec.preset === 'this-year' || spec.preset === 'last-year' || spec.preset === 'year') {
     return { from: sec(new Date(from.getFullYear() - 1, 0, 1)), to: r.from };
@@ -116,6 +134,7 @@ export function compareRange(spec: RangeSpec, r: TimeRange, mode: CompareMode): 
   return {
     from: sec(new Date(f.getFullYear() - 1, f.getMonth(), f.getDate())),
     to: sec(new Date(t.getFullYear() - 1, t.getMonth(), t.getDate())),
+    ...(r.gapDays ? { gapDays: r.gapDays } : {}),
   };
 }
 

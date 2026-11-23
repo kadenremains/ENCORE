@@ -394,10 +394,43 @@ export class RangeStats {
   }
 
   /** Number of calendar days the range spans (clamped to the data). */
+  /** Calendar days the range covers (clamped to your history and today), minus skipped breaks. */
   get spanDays() {
+    const { startDay, endDay } = this.window();
+    const skipped = this.gaps().reduce((sum, g) => sum + (g.end - g.start + 1), 0);
+    return Math.max(1, endDay - startDay + 1 - skipped);
+  }
+
+  private window() {
     const startDay = Math.max(this.dayOf(this.range.from), this.lib.n ? this.lib.day[0] : 0);
     const endDay = Math.min(this.dayOf(this.range.to - 1), this.dayOf(Date.now() / 1000));
-    return Math.max(1, endDay - startDay + 1);
+    return { startDay, endDay };
+  }
+
+  /**
+   * Breaks being skipped: runs of at least `range.gapDays` days with no scrobbles
+   * (inclusive day numbers). Empty when breaks aren't being skipped.
+   */
+  gaps(): { start: number; end: number }[] {
+    return this.memo('gaps', () => {
+      const min = this.range.gapDays ?? 0;
+      if (!min || !this.total) return [];
+      const { startDay, endDay } = this.window();
+      const days = [...this.dayCounts().keys()].sort((a, b) => a - b);
+      const out: { start: number; end: number }[] = [];
+      let prev = startDay - 1;
+      for (const d of days) {
+        if (d - prev - 1 >= min) out.push({ start: prev + 1, end: d - 1 });
+        prev = d;
+      }
+      if (endDay - prev >= min) out.push({ start: prev + 1, end: endDay });
+      return out;
+    });
+  }
+
+  /** Is this whole day range inside a skipped break? */
+  private inGap(startDay: number, endDay: number) {
+    return this.gaps().some((g) => startDay >= g.start && endDay <= g.end);
   }
 
   private dayOf(tsSec: number) {
@@ -483,7 +516,7 @@ export class RangeStats {
   }
 
   /** Bucketed series for timeline charts. */
-  timeline(bucket: 'day' | 'week' | 'month' | 'year' | 'auto'): { label: string; start: Date; value: number }[] {
+  timeline(bucket: 'day' | 'week' | 'month' | 'year' | 'auto'): { label: string; start: Date; value: number; afterBreak?: number }[] {
     return this.memo(`tl:${bucket}`, () => {
       if (!this.total) return [];
       const span = this.spanDays;
@@ -508,7 +541,7 @@ export class RangeStats {
         else x.setFullYear(x.getFullYear() + 1);
         return x;
       };
-      const buckets: { label: string; start: Date; value: number }[] = [];
+      const buckets: { label: string; start: Date; value: number; afterBreak?: number }[] = [];
       const index = new Map<number, number>();
       for (let d = keyOf(startDate); d <= endDate; d = next(d)) {
         index.set(d.getTime(), buckets.length);
@@ -525,7 +558,22 @@ export class RangeStats {
         const i = index.get(k);
         if (i !== undefined) buckets[i].value += c;
       }
-      return buckets;
+      if (!this.gaps().length) return buckets;
+      // drop empty buckets that sit entirely inside a skipped break, and note the break on the next one
+      const dayNumOf = (d: Date) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000);
+      const out: typeof buckets = [];
+      let skipped = 0;
+      for (const bk of buckets) {
+        const s = dayNumOf(bk.start);
+        const e = dayNumOf(next(bk.start)) - 1;
+        if (bk.value === 0 && this.inGap(s, e)) {
+          skipped += e - s + 1;
+          continue;
+        }
+        out.push(skipped ? { ...bk, afterBreak: skipped } : bk);
+        skipped = 0;
+      }
+      return out;
     });
   }
 
@@ -624,7 +672,7 @@ export class RangeStats {
 const statsCache = new Map<string, RangeStats>();
 
 export function getStats(lib: Library, range: TimeRange): RangeStats {
-  const key = `${lib.version}:${range.from}:${range.to}`;
+  const key = `${lib.version}:${range.from}:${range.to}:${range.gapDays ?? 0}`;
   let s = statsCache.get(key);
   if (!s) {
     if (statsCache.size > 40) statsCache.clear();

@@ -5,6 +5,7 @@ import { Logo } from '../ui/Logo';
 import { RangePicker } from '../ui/controls';
 import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
+import { dayToDate } from '../lib/library';
 import type { CompareMode } from '../lib/range';
 import { cancelSignIn, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
 
@@ -31,7 +32,9 @@ const MOBILE_TABS = [0, 1, 4, 5, 6];
 
 export function Shell({ route, children, showRange = true }: { route: Route; children: ReactNode; showRange?: boolean }) {
   const { user, username, demo, disconnect, exploreRange, setExploreRange, compare, setCompare } = useApp();
-  const { label } = useRangeStats();
+  const { label, stats } = useRangeStats();
+  const gaps = stats.gaps();
+  const gapDaysTotal = gaps.reduce((n, g) => n + g.end - g.start + 1, 0);
   const [menu, setMenu] = useState(false);
   const cloud = useCloud();
   const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' || cloud.error ? 'err' : cloud.dirty ? 'dirty' : 'ok') : '';
@@ -162,6 +165,14 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           <div className="rangebar-label">
             <span className="eyebrow">Showing</span>
             <strong>{label}</strong>
+            {gaps.length > 0 && (
+              <span
+                className="gap-note"
+                title={gaps.map((g) => `${dayToDate(g.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${dayToDate(g.end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`).join('\n')}
+              >
+                skipping {gaps.length} break{gaps.length > 1 ? 's' : ''} · {gapDaysTotal} days
+              </span>
+            )}
           </div>
           <div className="rangebar-controls">
             <RangePicker value={exploreRange} onChange={setExploreRange} />

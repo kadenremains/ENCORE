@@ -8,6 +8,8 @@ import { EmptyRange } from './Overview';
 
 type Bucket = 'day' | 'week' | 'month' | 'year';
 
+const breakNote = (days?: number) => (days ? ` · after a ${days >= 60 ? `${Math.round(days / 30)}-month` : `${days}-day`} break` : '');
+
 export function Listening() {
   const { stats, prev, label, lib } = useRangeStats();
   const span = stats.spanDays;
@@ -41,7 +43,11 @@ export function Listening() {
   // longest gap without music
   const days = [...stats.dayCounts().keys()].sort((a, b) => a - b);
   let gap = { days: 0, start: 0 };
-  for (let i = 1; i < days.length; i++) if (days[i] - days[i - 1] - 1 > gap.days) gap = { days: days[i] - days[i - 1] - 1, start: days[i - 1] + 1 };
+  const skipMin = stats.range.gapDays ?? Infinity; // skipped breaks don't count as silences
+  for (let i = 1; i < days.length; i++) {
+    const len = days[i] - days[i - 1] - 1;
+    if (len > gap.days && len < skipMin) gap = { days: len, start: days[i - 1] + 1 };
+  }
   const years: number[] = [];
   for (let y = dayToDate(stats.lastDay).getFullYear(); y >= dayToDate(stats.firstDay).getFullYear(); y--) years.push(y);
   const dayOf = (d: Date) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000);
@@ -80,7 +86,8 @@ export function Listening() {
             label: t.label,
             value: t.value,
             axis: i % Math.max(1, Math.ceil(tl.length / 8)) === 0 ? t.label : '',
-            tip: `${bucket === 'week' ? 'Week of ' : ''}${t.start.toLocaleDateString(undefined, bucket === 'year' ? { year: 'numeric' } : bucket === 'month' ? { month: 'long', year: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })} · ${fmtNum(t.value)} plays`,
+            afterBreak: t.afterBreak,
+            tip: `${bucket === 'week' ? 'Week of ' : ''}${t.start.toLocaleDateString(undefined, bucket === 'year' ? { year: 'numeric' } : bucket === 'month' ? { month: 'long', year: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })} · ${fmtNum(t.value)} plays${breakNote(t.afterBreak)}`,
           }))}
         />
       </Panel>

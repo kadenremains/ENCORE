@@ -3197,3 +3197,26 @@ a.hl:hover {
   padding-top: 14px;
   margin-top: 10px;
 }
+.gap-select {
+  color: var(--muted);
+}
+.gap-select.on {
+  color: var(--text);
+  border-color: var(--text);
+}
+.gap-note {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border: 1px dashed var(--line-2);
+  padding: 2px 7px;
+  white-space: nowrap;
+  cursor: help;
+}
+.bc-col.after-break {
+  border-left: 1px dashed var(--muted);
+  padding-left: 1px;
+}
+.rangebar-label {
+  flex-wrap: wrap;
+}

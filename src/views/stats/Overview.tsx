@@ -7,6 +7,8 @@ import type { EntityKind } from '../../lib/types';
 
 const AVG_MIN = 3.5;
 
+const breakNote = (days?: number) => (days ? ` · after a ${days >= 60 ? `${Math.round(days / 30)}-month` : `${days}-day`} break` : '');
+
 export function Overview() {
   const { stats, prev, label, cmpLabel, lib } = useRangeStats();
   if (!stats.total) return <EmptyRange label={label} />;
@@ -79,7 +81,8 @@ export function Overview() {
             label: t.label,
             value: t.value,
             axis: i % Math.max(1, Math.ceil(tl.length / 8)) === 0 ? t.label : '',
-            tip: `${t.start.toLocaleDateString(undefined, { month: 'short', day: tl.length > 60 || t.label.length > 4 ? 'numeric' : undefined, year: 'numeric' })} · ${fmtNum(t.value)} plays`,
+            afterBreak: t.afterBreak,
+            tip: `${t.start.toLocaleDateString(undefined, { month: 'short', day: tl.length > 60 || t.label.length > 4 ? 'numeric' : undefined, year: 'numeric' })} · ${fmtNum(t.value)} plays${breakNote(t.afterBreak)}`,
           }))}
         />
       </Panel>
