@@ -2,8 +2,8 @@ import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import type { Library } from '../lib/library';
 import type { Project, Slide, Theme } from '../editor/model';
 import { BlockView, type RenderCtx } from './blocks';
-import { EntityImg, GRAIN_URL } from './primitives';
-import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useImagesVersion } from '../lib/images';
+import { GRAIN_URL } from './primitives';
+import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useEntityImage, useImagesVersion } from '../lib/images';
 import { useApp } from '../store';
 import { getStats } from '../lib/library';
 import { resolveRange } from '../lib/range';
@@ -57,23 +57,7 @@ export const SlideCanvas = forwardRef<HTMLDivElement, Props>(function SlideCanva
         ...style,
       }}
     >
-      {(theme.bgImageSource === 'artist' || theme.bgImageSource === 'album') && <AutoBackground lib={lib} project={project} theme={theme} />}
-      {(theme.bgImageSource === 'avatar' || theme.bgImageSource === 'mine') && <AccountBackground theme={theme} />}
-      {theme.bgImage && (theme.bgImageSource ?? 'upload') === 'upload' && (
-        <img
-          src={theme.bgImage}
-          alt=""
-          style={{
-            position: 'absolute',
-            inset: theme.bgImageBlur ? -theme.bgImageBlur * 2 : 0,
-            width: theme.bgImageBlur ? `calc(100% + ${theme.bgImageBlur * 4}px)` : '100%',
-            height: theme.bgImageBlur ? `calc(100% + ${theme.bgImageBlur * 4}px)` : '100%',
-            objectFit: 'cover',
-            opacity: theme.bgImageOpacity,
-            filter: theme.bgImageBlur ? `blur(${theme.bgImageBlur}px)` : undefined,
-          }}
-        />
-      )}
+      <BackgroundPicture lib={lib} project={project} theme={theme} />
       {theme.grain > 0 && <div style={{ position: 'absolute', inset: 0, backgroundImage: GRAIN_URL, backgroundSize: '300px 300px', opacity: theme.grain, mixBlendMode: 'overlay', pointerEvents: 'none' }} />}
       {theme.frame && <Frame w={project.format.w} h={project.format.h} color={theme.text} />}
       {slide.blocks.map((b) => (
@@ -84,18 +68,6 @@ export const SlideCanvas = forwardRef<HTMLDivElement, Props>(function SlideCanva
   );
 });
 
-/** Your #1 album / artist art, blurred and dimmed behind everything. */
-function AutoBackground({ lib, project, theme }: { lib: Library; project: Project; theme: Theme }) {
-  const kind = theme.bgImageSource === 'artist' ? 'artist' : 'album';
-  const top = getStats(lib, resolveRange(project.range)).top(kind, 1)[0];
-  if (!top) return null;
-  const bleed = theme.bgImageBlur * 2;
-  return (
-    <div style={{ position: 'absolute', inset: -bleed, opacity: theme.bgImageOpacity, filter: theme.bgImageBlur ? `blur(${theme.bgImageBlur}px)` : undefined }}>
-      <EntityImg kind={kind} name={top.name} artist={top.artist} />
-    </div>
-  );
-}
 
 /** Thin inset frame with corner brackets, in the style of archival review cards. */
 function Frame({ w, h, color }: { w: number; h: number; color: string }) {
@@ -120,27 +92,49 @@ function Frame({ w, h, color }: { w: number; h: number; color: string }) {
   );
 }
 
-/** Your Last.fm profile picture, or your saved account picture. */
-function AccountBackground({ theme }: { theme: Theme }) {
-  useImagesVersion(); // re-render when "My picture" changes or syncs in
+
+/** The picture a theme's background currently resolves to (any source), or undefined. */
+export function useBackgroundSrc(lib: Library, project: Project, theme: Theme): string | undefined {
+  useImagesVersion(); // "My picture" / custom images can change or sync in
   const avatar = useApp((st) => st.user?.image);
-  const src = theme.bgImageSource === 'mine' ? getOverride(ACCOUNT_BG_KEY)?.src : bigAvatar(avatar);
+  const src = theme.bgImageSource;
+  const kind = src === 'artist' ? 'artist' : 'album';
+  const top = src === 'artist' || src === 'album' ? getStats(lib, resolveRange(project.range)).top(kind, 1)[0] : undefined;
+  const auto = useEntityImage(kind, top?.name ?? '', top?.artist ?? '');
+  if (src === 'artist' || src === 'album') return top ? auto?.src : undefined;
+  if (src === 'mine') return getOverride(ACCOUNT_BG_KEY)?.src;
+  if (src === 'avatar') return bigAvatar(avatar);
+  return theme.bgImage;
+}
+
+/** CSS for placing the background picture: focus point + zoom. */
+export function bgPlacement(theme: Theme) {
+  const x = theme.bgImageX ?? 50;
+  const y = theme.bgImageY ?? 50;
+  const z = theme.bgImageZoom ?? 1;
+  return { objectPosition: `${x}% ${y}%`, transform: z !== 1 ? `scale(${z})` : undefined, transformOrigin: `${x}% ${y}%` };
+}
+
+function BackgroundPicture({ lib, project, theme }: { lib: Library; project: Project; theme: Theme }) {
+  const src = useBackgroundSrc(lib, project, theme);
   if (!src) return null;
   const blur = theme.bgImageBlur;
   return (
-    <img
-      src={src}
-      alt=""
-      crossOrigin={src.startsWith('data:') ? undefined : 'anonymous'}
-      style={{
-        position: 'absolute',
-        inset: blur ? -blur * 2 : 0,
-        width: blur ? `calc(100% + ${blur * 4}px)` : '100%',
-        height: blur ? `calc(100% + ${blur * 4}px)` : '100%',
-        objectFit: 'cover',
-        opacity: theme.bgImageOpacity,
-        filter: blur ? `blur(${blur}px)` : undefined,
-      }}
-    />
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', opacity: theme.bgImageOpacity }}>
+      <img
+        src={src}
+        alt=""
+        crossOrigin={src.startsWith('data:') ? undefined : 'anonymous'}
+        style={{
+          position: 'absolute',
+          inset: blur ? -blur * 2 : 0,
+          width: blur ? `calc(100% + ${blur * 4}px)` : '100%',
+          height: blur ? `calc(100% + ${blur * 4}px)` : '100%',
+          objectFit: 'cover',
+          filter: blur ? `blur(${blur}px)` : undefined,
+          ...bgPlacement(theme),
+        }}
+      />
+    </div>
   );
 }

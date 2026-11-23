@@ -22,7 +22,7 @@ import {
 } from './model';
 import { ColorInput, Field, RangePicker, Section, Segmented, Select, Slider, TextInput, Toggle, UploadButton } from '../ui/controls';
 import { blockRange, imageBlockEntity, TOKENS, defaultStatLabel, type RenderCtx } from '../render/blocks';
-import { slideTheme, backgroundCss } from '../render/SlideCanvas';
+import { slideTheme, backgroundCss, bgPlacement, useBackgroundSrc } from '../render/SlideCanvas';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
 import { EntityImg } from '../render/primitives';
 import { ACCOUNT_BG_KEY, getOverride, removeOverride, setOverride, useImagesVersion } from '../lib/images';
@@ -705,7 +705,7 @@ function BlockImages({ block, project, kind }: { block: Block; project: Project;
 
 /* =============================== project =============================== */
 
-const BG_KEYS: (keyof Theme)[] = ['bgType', 'bg1', 'bg2', 'bg3', 'angle', 'bgImage', 'bgImageSource', 'bgImageOpacity', 'bgImageBlur', 'grain'];
+const BG_KEYS: (keyof Theme)[] = ['bgType', 'bg1', 'bg2', 'bg3', 'angle', 'bgImage', 'bgImageSource', 'bgImageOpacity', 'bgImageBlur', 'bgImageX', 'bgImageY', 'bgImageZoom', 'grain'];
 
 function ProjectInspector({ project }: { project: Project }) {
   const st = useEditor();
@@ -879,6 +879,7 @@ function ProjectInspector({ project }: { project: Project }) {
         )}
         {(eff.bgImage || (eff.bgImageSource && eff.bgImageSource !== 'upload')) && (
           <>
+            <BgFramer project={project} theme={eff} onChange={setBg} />
             <Field label="Image opacity">
               <Slider value={eff.bgImageOpacity} min={0} max={1} step={0.01} onChange={(v) => setBg({ bgImageOpacity: v }, 'bgio')} />
             </Field>
@@ -949,6 +950,63 @@ function MyPictureControls() {
         </div>
         <p className="muted small">Saved to your account and synced to your devices. Every wrapped using “My picture” updates when you replace it.</p>
       </div>
+    </div>
+  );
+}
+
+/** Drag-to-frame preview for the background picture, in the slide's real proportions. */
+function BgFramer({ project, theme, onChange }: { project: Project; theme: Theme; onChange: (patch: Partial<Theme>, merge?: string) => void }) {
+  const lib = useApp((st) => st.lib)!;
+  const src = useBackgroundSrc(lib, project, theme);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ sx: number; sy: number; x: number; y: number } | null>(null);
+  if (!src) return null;
+  const { w, h } = project.format;
+  const zoom = theme.bgImageZoom ?? 1;
+  const x = theme.bgImageX ?? 50;
+  const y = theme.bgImageY ?? 50;
+  // keep tall formats from getting huge in the panel
+  const maxH = 260;
+  const width = Math.min(1, (maxH * w) / h / 268) * 100;
+  return (
+    <div className="bg-framer">
+      <span className="field-label">Position · drag the picture</span>
+      <div
+        ref={boxRef}
+        className="bg-framer-box"
+        style={{ aspectRatio: `${w} / ${h}`, width: `${width}%`, background: backgroundCss(theme) }}
+        onPointerDown={(e) => {
+          (e.target as Element).setPointerCapture(e.pointerId);
+          drag.current = { sx: e.clientX, sy: e.clientY, x, y };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          const el = boxRef.current;
+          if (!d || !el) return;
+          // moving the picture right shows more of its left side: focus point moves the other way
+          const kx = 100 / (el.clientWidth * zoom);
+          const ky = 100 / (el.clientHeight * zoom);
+          onChange(
+            {
+              bgImageX: Math.round(Math.max(0, Math.min(100, d.x - (e.clientX - d.sx) * kx)) * 10) / 10,
+              bgImageY: Math.round(Math.max(0, Math.min(100, d.y - (e.clientY - d.sy) * ky)) * 10) / 10,
+            },
+            'bgpos',
+          );
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
+      >
+        <img src={src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: Math.max(0.35, theme.bgImageOpacity), ...bgPlacement(theme) }} />
+      </div>
+      <Field label="Zoom">
+        <Slider value={zoom} min={1} max={4} step={0.01} onChange={(v) => onChange({ bgImageZoom: v }, 'bgzoom')} />
+      </Field>
+      {(x !== 50 || y !== 50 || zoom !== 1) && (
+        <button className="btn small" onClick={() => onChange({ bgImageX: 50, bgImageY: 50, bgImageZoom: 1 })}>
+          Reset position
+        </button>
+      )}
     </div>
   );
 }

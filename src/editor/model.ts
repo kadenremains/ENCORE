@@ -59,6 +59,10 @@ export interface Theme {
   bgImageSource?: 'upload' | 'artist' | 'album' | 'avatar' | 'mine';
   bgImageOpacity: number;
   bgImageBlur: number;
+  /** framing of the background picture: focus point (0-100%) and zoom (1 = fill) */
+  bgImageX?: number;
+  bgImageY?: number;
+  bgImageZoom?: number;
   /** font for artist / album / song names in lists (defaults to body font) */
   nameFont?: string;
   /** extra letter-spacing for heading text, in em */

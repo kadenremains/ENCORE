@@ -3233,3 +3233,27 @@ a.hl:hover {
   border: 1px solid var(--line-2);
   flex: 0 0 64px;
 }
+.bg-framer {
+  margin: 4px 0 12px;
+}
+.bg-framer .field-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.bg-framer-box {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  cursor: grab;
+  touch-action: none;
+  margin-bottom: 12px;
+  max-width: 100%;
+}
+.bg-framer-box:active {
+  cursor: grabbing;
+}
+.bg-framer-box img {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
