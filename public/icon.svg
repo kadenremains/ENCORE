@@ -16,18 +16,13 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <!-- archival frame with corner brackets -->
-  <rect x="44" y="44" width="424" height="424" fill="none" stroke="#c8cdd6" stroke-opacity=".13" stroke-width="2"/>
-  <g stroke="#e8ebf1" stroke-opacity=".5" stroke-width="3" fill="none">
-    <path d="M44 76V44h32"/><path d="M436 44h32v32"/><path d="M468 436v32h-32"/><path d="M76 468H44v-32"/>
-  </g>
   <!-- the disc -->
-  <circle cx="256" cy="256" r="150" fill="url(#disc)"/>
+  <circle cx="256" cy="256" r="196" fill="url(#disc)"/>
   <g fill="none" stroke="#0b0b0f" stroke-opacity=".09" stroke-width="2">
-    <circle cx="256" cy="256" r="132"/><circle cx="256" cy="256" r="116"/><circle cx="256" cy="256" r="100"/><circle cx="256" cy="256" r="84"/>
+    <circle cx="256" cy="256" r="172"/><circle cx="256" cy="256" r="151"/><circle cx="256" cy="256" r="130"/><circle cx="256" cy="256" r="110"/>
   </g>
-  <path d="M256 106a150 150 0 0 1 0 300z" fill="#0b0b0f" opacity=".42"/>
-  <circle cx="256" cy="256" r="150" fill="url(#shine)" opacity=".5"/>
-  <circle cx="256" cy="256" r="40" fill="#0b0b0f"/>
-  <circle cx="256" cy="256" r="40" fill="none" stroke="#e8ebf1" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M256 60a196 196 0 0 1 0 392z" fill="#0b0b0f" opacity=".42"/>
+  <circle cx="256" cy="256" r="196" fill="url(#shine)" opacity=".5"/>
+  <circle cx="256" cy="256" r="52" fill="#0b0b0f"/>
+  <circle cx="256" cy="256" r="52" fill="none" stroke="#e8ebf1" stroke-opacity=".18" stroke-width="2"/>
 </svg>
