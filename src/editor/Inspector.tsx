@@ -710,8 +710,8 @@ const BG_KEYS: (keyof Theme)[] = ['bgType', 'bg1', 'bg2', 'bg3', 'angle', 'bgIma
 function ProjectInspector({ project }: { project: Project }) {
   const st = useEditor();
   const slide = project.slides[st.slideIdx];
-  const [bgScope, setBgScope] = useState<'all' | 'slide'>(slide.theme ? 'slide' : 'all');
-  useEffect(() => setBgScope(slide.theme ? 'slide' : 'all'), [slide.id, slide.theme]);
+  // a slide has its own background exactly when it has its own theme
+  const bgScope: 'all' | 'slide' = slide.theme ? 'slide' : 'all';
   const theme = project.theme;
   const eff = slideTheme(project, slide);
   const avatar = useApp((st) => st.user?.image);
@@ -796,7 +796,7 @@ function ProjectInspector({ project }: { project: Project }) {
         <Segmented
           value={bgScope}
           onChange={(v) => {
-            setBgScope(v);
+            if (v === bgScope) return;
             if (v === 'all')
               st.update((p) => {
                 delete p.slides[st.slideIdx].theme;

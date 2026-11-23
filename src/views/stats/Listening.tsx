@@ -29,7 +29,12 @@ export function Listening() {
     return days.map((d) => {
       let best = -1;
       let bc = 0;
-      for (const [a, c] of per.get(d.day) ?? []) if (c > bc) ((best = a), (bc = c));
+      for (const [a, c] of per.get(d.day) ?? []) {
+        if (c > bc) {
+          best = a;
+          bc = c;
+        }
+      }
       return { ...d, artist: best >= 0 ? lib.artists[best].name : '', artistPlays: bc };
     });
   }, [stats, lib]);

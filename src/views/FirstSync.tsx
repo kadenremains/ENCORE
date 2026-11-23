@@ -16,7 +16,21 @@ export function FirstSync() {
         <div className="brand big">
           <Logo /> Encore
         </div>
-        {syncError ? (
+        {sync?.phase === 'done' && !syncError ? (
+          <>
+            <div className="eyebrow">{username}</div>
+            <h1>No scrobbles yet</h1>
+            <p className="lead">This Last.fm account hasn't scrobbled anything yet. Play something with scrobbling on, then check again.</p>
+            <div className="row gap">
+              <button className="btn primary" onClick={() => runSync()}>
+                Check again
+              </button>
+              <button className="btn" onClick={() => disconnect()}>
+                Use another account
+              </button>
+            </div>
+          </>
+        ) : syncError ? (
           <>
             <h1>Couldn't download</h1>
             <p className="error">{syncError}</p>

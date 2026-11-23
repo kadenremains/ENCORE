@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { Library, RangeStats } from '../lib/library';
 import { getStats, dayToDate } from '../lib/library';
-import { previousRange, rangeLabel, resolveRange } from '../lib/range';
+import { compareRange, previousRange, rangeLabel, resolveRange } from '../lib/range';
 import type { EntityKind, RangeSpec, RankedItem } from '../lib/types';
 import {
   fontFamily,
@@ -595,7 +595,7 @@ function LeaderboardView({ ctx, b }: { ctx: RenderCtx; b: LeaderboardBlock }) {
   const { w, h } = innerSize(b);
   if (!items.length) return <EmptyNote p={p} />;
   let prev: RangeStats | null = null;
-  if (b.compare === 'previous') prev = getStats(ctx.lib, previousRange(spec, stats.range));
+  if (b.compare === 'previous') prev = getStats(ctx.lib, compareRange(spec, stats.range, 'previous') ?? previousRange(spec, stats.range));
   else if (b.compare === 'custom' && b.compareRange) prev = getStats(ctx.lib, resolveRange(b.compareRange));
   const prevMap = prev?.rankMap(b.entity);
   const n = Math.max(1, b.count);

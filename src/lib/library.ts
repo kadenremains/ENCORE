@@ -308,7 +308,7 @@ export class RangeStats {
     return this.memo(`rank:${kind}`, () => {
       const col = this.column(kind);
       const counts = new Int32Array(this.size(kind));
-      // last play position, used as a tie-breaker (who got there first wins)
+      // first play position, used as a tie-breaker (who got there first wins)
       const firstPos = new Int32Array(this.size(kind)).fill(-1);
       for (let i = this.lo; i < this.hi; i++) {
         const v = col[i];
@@ -396,7 +396,6 @@ export class RangeStats {
     return this.total ? this.lib.day[this.hi - 1] : 0;
   }
 
-  /** Number of calendar days the range spans (clamped to the data). */
   /** Calendar days the range covers (clamped to your history and today), minus skipped breaks. */
   get spanDays() {
     const { startDay, endDay } = this.window();
@@ -599,7 +598,12 @@ export class RangeStats {
         .map(([mk, m]) => {
           let best = -1;
           let bc = 0;
-          for (const [k, c] of m) if (c > bc) ((best = k), (bc = c));
+          for (const [k, c] of m) {
+            if (c > bc) {
+              best = k;
+              bc = c;
+            }
+          }
           return { month: new Date(Math.floor(mk / 12), mk % 12, 1), item: best >= 0 ? this.item(kind, { idx: best, count: bc }, 1) : null, count: bc };
         });
     });
@@ -639,7 +643,12 @@ export class RangeStats {
       const best = (m: Map<number, number>) => {
         let bi = -1;
         let bc = 0;
-        for (const [k, c] of m) if (c > bc) ((bi = k), (bc = c));
+        for (const [k, c] of m) {
+          if (c > bc) {
+            bi = k;
+            bc = c;
+          }
+        }
         return { idx: bi, count: bc };
       };
       return [...rows.entries()]
@@ -665,7 +674,6 @@ export class RangeStats {
     for (const t of tl) if (!best || t.value > best.value) best = { start: t.start, value: t.value };
     return best && best.value > 0 ? best : null;
   }
-
 
   countOf(kind: EntityKind, idx: number) {
     return this.rankMap(kind).get(idx)?.count ?? 0;
@@ -761,8 +769,10 @@ export function entityRangeStats(lib: Library, kind: EntityKind, idx: number, ra
       let cur: Streak = { days: 1, start: days[0], end: days[0] };
       streak = { ...cur };
       for (let i = 1; i < days.length; i++) {
-        if (days[i] === days[i - 1] + 1) ((cur.days += 1), (cur.end = days[i]));
-        else cur = { days: 1, start: days[i], end: days[i] };
+        if (days[i] === days[i - 1] + 1) {
+          cur.days += 1;
+          cur.end = days[i];
+        } else cur = { days: 1, start: days[i], end: days[i] };
         if (cur.days > streak.days) streak = { ...cur };
       }
     }

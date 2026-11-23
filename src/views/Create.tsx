@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 import { db } from '../lib/db';
-import { newProject, TEMPLATES, THEMES, FORMATS, type Project } from '../editor/model';
+import { newProject, uid, TEMPLATES, THEMES, FORMATS, type Project } from '../editor/model';
 import { SlideCanvas, backgroundCss } from '../render/SlideCanvas';
 import { navigate } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
@@ -103,7 +103,7 @@ export function Create() {
                   <button
                     className="mini-btn"
                     onClick={async () => {
-                      const copy = { ...structuredClone(p), id: Math.random().toString(36).slice(2, 10), name: `${p.name} copy`, updated: Date.now(), created: Date.now() };
+                      const copy = { ...structuredClone(p), id: uid(), name: `${p.name} copy`, updated: Date.now(), created: Date.now() };
                       await db.projects.put(copy);
                       localChanged();
                       setProjects((ps) => [copy, ...ps]);

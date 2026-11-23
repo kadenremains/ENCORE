@@ -26,7 +26,7 @@ const dec = (s: string) => {
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  const [a, b, c, d] = parts;
+  const [a, b, c] = parts;
   switch (a) {
     case 'artists':
       return { name: 'top', kind: 'artist' };
@@ -53,7 +53,6 @@ export function parseRoute(hash: string): Route {
     case 'images':
       return { name: 'images' };
   }
-  void d;
   return { name: 'overview' };
 }
 

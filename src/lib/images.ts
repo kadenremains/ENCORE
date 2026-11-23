@@ -76,7 +76,8 @@ export async function applyRemoteRemoval(key: string, updated: number) {
 
 type HintFn = (kind: EntityKind, name: string, artist: string) => string | undefined;
 let hintFn: HintFn = () => undefined;
-type AlbumOfFn = (track: string, artist: string) => string | undefined;
+/** The album a song belongs to, credited to its album artist (can differ from the song's artist). */
+type AlbumOfFn = (track: string, artist: string) => { name: string; artist: string } | undefined;
 let albumOf: AlbumOfFn = () => undefined;
 export function setImageHints(fn: HintFn, albumFn?: AlbumOfFn) {
   hintFn = fn;
@@ -179,23 +180,21 @@ async function itunes(kind: 'album' | 'track', name: string, artist: string): Pr
   return hit?.artworkUrl100?.replace(/\/\d+x\d+bb\./, '/1200x1200bb.') ?? '';
 }
 
-let lastLookupFailed = false;
-async function firstOf(...fns: (() => Promise<string>)[]) {
+/**
+ * Try each source in turn. `failed` means every source errored (offline, rate limited), so the
+ * miss shouldn't be remembered; a real "not found" is cached so we don't keep asking.
+ */
+async function firstOf(...fns: (() => Promise<string>)[]): Promise<{ url: string; failed: boolean }> {
   let failures = 0;
   for (const fn of fns) {
     try {
       const u = await fn();
-      if (u) {
-        lastLookupFailed = false;
-        return u;
-      }
+      if (u) return { url: u, failed: false };
     } catch {
       failures++; // network error / rate limit: try next source
     }
   }
-  // only a real "not found" should be remembered; errors get retried next time
-  lastLookupFailed = failures === fns.length;
-  return '';
+  return { url: '', failed: failures === fns.length };
 }
 
 /* simple concurrency-limited queue so we don't hammer the APIs */
@@ -226,47 +225,50 @@ export function lookupImage(kind: EntityKind, name: string, artist: string): Pro
   const existing = inflight.get(key);
   if (existing) return existing;
   const p = schedule(async () => {
-    let url = '';
-    if (kind === 'artist') url = await firstOf(() => deezerArtist(artist));
-    else if (kind === 'album') url = await firstOf(() => deezerAlbum(name, artist), () => itunes('album', name, artist));
-    else {
-      url = await firstOf(() => deezerTrack(name, artist), () => itunes('track', name, artist));
-      // fall back to the art of the album the song was scrobbled from
-      const album = albumOf(name, artist);
-      if (!url && album) {
-        url = (await lookupAlbumDirect(album, artist)) || '';
+    try {
+      let res: { url: string; failed: boolean };
+      if (kind === 'artist') res = await firstOf(() => deezerArtist(artist));
+      else if (kind === 'album') res = await firstOf(() => deezerAlbum(name, artist), () => itunes('album', name, artist));
+      else {
+        res = await firstOf(() => deezerTrack(name, artist), () => itunes('track', name, artist));
+        // fall back to the art of the album the song was scrobbled from
+        const album = albumOf(name, artist);
+        if (!res.url && album) {
+          const a = await lookupAlbumDirect(album.name, album.artist);
+          if (a.url || !a.failed) res = a;
+        }
       }
-    }
-    inflight.delete(key);
-    if (!url && lastLookupFailed) {
-      // transient failure: back off for this session, but don't persist the miss
-      resolved.set(key, '');
-      setTimeout(() => resolved.delete(key), 60_000);
+      if (!res.url && res.failed) {
+        // transient failure: back off for this session, but don't persist the miss
+        resolved.set(key, '');
+        setTimeout(() => resolved.delete(key), 60_000);
+      } else {
+        resolved.set(key, res.url);
+        db.imgcache.put({ key, url: res.url, fetched: Date.now() }).catch(() => {});
+      }
       emit();
-      return url;
+      return res.url;
+    } finally {
+      inflight.delete(key);
     }
-    resolved.set(key, url);
-    db.imgcache.put({ key, url, fetched: Date.now() }).catch(() => {});
-    emit();
-    return url;
   });
   inflight.set(key, p);
   return p;
 }
 
 /** Album lookup usable from inside a queued job (doesn't re-enter the queue). */
-async function lookupAlbumDirect(album: string, artist: string): Promise<string> {
+async function lookupAlbumDirect(album: string, artist: string): Promise<{ url: string; failed: boolean }> {
   const k = entityKey('album', album, artist);
   const hint = hintFn('album', album, artist);
-  if (hint) return hint;
+  if (hint) return { url: hint, failed: false };
   const custom = overrides.get(k);
-  if (custom) return custom.src;
-  if (resolved.has(k)) return resolved.get(k)!;
-  const url = await firstOf(() => deezerAlbum(album, artist), () => itunes('album', album, artist));
-  if (!url && lastLookupFailed) return '';
-  resolved.set(k, url);
-  db.imgcache.put({ key: k, url, fetched: Date.now() }).catch(() => {});
-  return url;
+  if (custom) return { url: custom.src, failed: false };
+  if (resolved.has(k)) return { url: resolved.get(k)!, failed: false };
+  const res = await firstOf(() => deezerAlbum(album, artist), () => itunes('album', album, artist));
+  if (res.failed) return res;
+  resolved.set(k, res.url);
+  db.imgcache.put({ key: k, url: res.url, fetched: Date.now() }).catch(() => {});
+  return res;
 }
 
 export interface ResolvedImage {
@@ -285,7 +287,7 @@ export function currentImage(kind: EntityKind, name: string, artist: string): Re
   // a custom album image also covers that album's songs
   if (kind === 'track') {
     const album = albumOf(name, artist);
-    const ao = album ? overrides.get(entityKey('album', album, artist)) : undefined;
+    const ao = album ? overrides.get(entityKey('album', album.name, album.artist)) : undefined;
     if (ao) return { src: ao.src, zoom: ao.zoom, x: ao.x, y: ao.y, custom: false };
   }
   // Last.fm art for albums is the most accurate; for tracks it's the album art.
@@ -317,7 +319,6 @@ export function useImagesVersion() {
   return useSyncExternalStore(subscribeImages, () => version);
 }
 
-/** Read a user file, downscale to keep IndexedDB lean, return a data URL. */
 /** Downscale + re-encode an image source until it's under `target` characters (keeps PNG only for transparency). */
 async function shrinkImage(src: string, opts: { max?: number; target?: number; maybeAlpha?: boolean } = {}): Promise<string> {
   const { max = 1600, target = 700_000, maybeAlpha = true } = opts;

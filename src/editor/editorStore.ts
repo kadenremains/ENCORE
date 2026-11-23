@@ -29,14 +29,32 @@ interface EditorState {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function scheduleSave(p: Project) {
+let pendingSave: Project | null = null;
+
+function saveNow() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    db.projects
-      .put(p)
-      .then(() => localChanged())
-      .catch((e) => console.error('save failed', e));
-  }, 400);
+  saveTimer = undefined;
+  const p = pendingSave;
+  pendingSave = null;
+  if (!p) return;
+  db.projects
+    .put(p)
+    .then(() => localChanged())
+    .catch((e) => console.error('save failed', e));
+}
+
+function scheduleSave(p: Project) {
+  pendingSave = p;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 400);
+}
+
+// leaving the app (switching apps on iPhone, closing the tab): write the last edit right away
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', saveNow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveNow();
+  });
 }
 
 const clone = <T,>(x: T): T => structuredClone(x);
@@ -52,9 +70,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   load: (p) => set({ project: p, slideIdx: 0, selectedId: null, past: [], future: [], lastMerge: null }),
   close: () => {
     const p = get().project;
-    if (p) {
-      clearTimeout(saveTimer);
-      db.projects.put(p).then(() => localChanged());
+    if (p && pendingSave) {
+      pendingSave = p;
+      saveNow();
     }
     set({ project: null, selectedId: null });
   },
@@ -172,7 +190,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   undo: () => {
     const { past, project, future } = get();
     if (!past.length || !project) return;
-    const prev = past[past.length - 1];
+    // a fresh timestamp, so the undo counts as the newest version and syncs to other devices
+    const prev = { ...past[past.length - 1], updated: Date.now() };
     set({ project: prev, past: past.slice(0, -1), future: [project, ...future], lastMerge: null, slideIdx: Math.min(get().slideIdx, prev.slides.length - 1) });
     scheduleSave(prev);
   },
@@ -180,7 +199,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   redo: () => {
     const { past, project, future } = get();
     if (!future.length || !project) return;
-    const next = future[0];
+    const next = { ...future[0], updated: Date.now() };
     set({ project: next, past: [...past, project], future: future.slice(1), lastMerge: null, slideIdx: Math.min(get().slideIdx, next.slides.length - 1) });
     scheduleSave(next);
   },

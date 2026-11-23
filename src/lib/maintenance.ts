@@ -21,13 +21,12 @@ export async function shrinkProjectImages(p: Project): Promise<boolean> {
 }
 
 const DONE = 'sw.maint.shrink.v1';
-
-/**
- * One-time pass over everything saved before uploads were compressed: shrinks big pictures
- * inside wrappeds and custom images so they're light and sync quickly.
- */
 const EMBED_DONE = 'sw.maint.embed.v1';
 
+/**
+ * One-time passes over things saved by older versions: custom pictures that were links get our own
+ * copy, and big pictures inside wrappeds and custom images are shrunk so they're light and sync quickly.
+ */
 export async function runMaintenance() {
   // custom pictures that are links to other sites -> keep our own copy (fixes exports + sync)
   try {

@@ -22,7 +22,7 @@ async function call<T>(params: Record<string, string | number>, apiKey: string, 
   let res: Response;
   try {
     res = await fetch(`${relay ? `${API_URL}/lastfm` : API}?${qs}`);
-  } catch (e) {
+  } catch {
     if (attempt < 5) {
       await sleep(800 * 2 ** attempt);
       return call(params, apiKey, attempt + 1);

@@ -6,9 +6,11 @@ import { md5 } from './md5';
  *  - GET  /lastfm?...        read-only Last.fm relay (adds the API key server-side)
  *  - GET  /auth/start        begin "Sign in with Last.fm"
  *  - GET  /auth/callback     Last.fm redirects here; we create a session and bounce back to the site
+ *  - GET  /auth/poll         a waiting app picks up its session (sign-in finished in another browser view)
  *  - GET  /me                who am I
  *  - POST /sync              push local changes, pull remote changes (wrappeds, images, settings)
  *  - POST /logout
+ *  - GET/POST /setup         one-time page for saving the Last.fm key + secret
  */
 
 export interface Env {
@@ -176,7 +178,7 @@ async function authCallback(url: URL, env: Env) {
   const sig = md5(`api_key${key}methodauth.getSessiontoken${token}${secret}`);
   const qs = new URLSearchParams({ method: 'auth.getSession', api_key: key, token, api_sig: sig, format: 'json' });
   const r = await fetch(`${LASTFM}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
-  const body = (await r.json()) as { session?: { name: string }; error?: number; message?: string };
+  const body = (await r.json().catch(() => ({}))) as { session?: { name: string }; error?: number; message?: string };
   if (!body.session?.name) return Response.redirect(`${redirect}#auth_error=${encodeURIComponent(body.message ?? 'lastfm_rejected')}`, 302);
   const name = body.session.name;
   const now = Date.now();
@@ -256,9 +258,12 @@ async function sync(req: Request, env: Env) {
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = (await req.json()) as SyncIn;
   const now = Date.now();
-  // unique, increasing server revision per row so paging by cursor never skips ties
+  // Server revision per row, for paging by cursor. It's computed inside the write itself as
+  // max(time-based value, current max + 1), so revisions only ever grow in commit order: a slow
+  // request can't commit a revision lower than one another device has already paged past.
   let seq = 0;
   const rev = () => now * 1000 + seq++;
+  const nextSrv = (table: 'projects' | 'images' | 'settings') => `MAX(?, COALESCE((SELECT MAX(srv) FROM ${table} WHERE user = ?), 0) + 1)`;
   // statements grouped per item (an item's pieces are written atomically), with approximate byte size
   const groups: { stmts: D1PreparedStatement[]; bytes: number }[] = [];
   let stmts: D1PreparedStatement[] = [];
@@ -293,9 +298,9 @@ async function sync(req: Request, env: Env) {
     stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO projects (user, id, data, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO projects (user, id, data, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ${nextSrv('projects')})
          ON CONFLICT(user, id) DO UPDATE SET data = excluded.data, updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
-      ).bind(user, p.id, c.stored, p.updated, p.deleted ? 1 : 0, rev()),
+      ).bind(user, p.id, c.stored, p.updated, p.deleted ? 1 : 0, rev(), user),
     );
     flushGroup(data?.length ?? 0);
   }
@@ -311,20 +316,20 @@ async function sync(req: Request, env: Env) {
     stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO images (user, key, src, zoom, x, y, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO images (user, key, src, zoom, x, y, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nextSrv('images')})
          ON CONFLICT(user, key) DO UPDATE SET src = excluded.src, zoom = excluded.zoom, x = excluded.x, y = excluded.y,
            updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
-      ).bind(user, im.key, c.stored, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev()),
+      ).bind(user, im.key, c.stored, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev(), user),
     );
     flushGroup(src?.length ?? 0);
   }
   if (body.settings && typeof body.settings.updated === 'number' && (body.settings.data ?? '').length < 100_000) {
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO settings (user, data, updated, srv) VALUES (?, ?, ?, ?)
+        `INSERT INTO settings (user, data, updated, srv) VALUES (?, ?, ?, ${nextSrv('settings')})
          ON CONFLICT(user) DO UPDATE SET data = excluded.data, updated = excluded.updated, srv = excluded.srv
          WHERE excluded.updated > settings.updated`,
-      ).bind(user, body.settings.data, body.settings.updated, rev()),
+      ).bind(user, body.settings.data, body.settings.updated, rev(), user),
     );
   }
   flushGroup(body.settings?.data?.length ?? 0);

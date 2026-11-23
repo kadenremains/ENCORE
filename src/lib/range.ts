@@ -125,17 +125,28 @@ export function rangeLabel(spec: RangeSpec, r: TimeRange, firstScrobble?: number
 
 export type CompareMode = 'previous' | 'lastYear' | 'none';
 
-/** The range to compare against: the period right before, or the same dates a year earlier. */
-export function compareRange(spec: RangeSpec, r: TimeRange, mode: CompareMode): TimeRange | null {
+/**
+ * The range to compare against: the period right before, or the same dates a year earlier.
+ * A period still in progress (this year, this month, the last 7 days including today) is compared
+ * with the same stretch of the other period only, e.g. Jan 1 – today vs Jan 1 – this day last year,
+ * so the numbers aren't measured against a full period that's had more time.
+ */
+export function compareRange(spec: RangeSpec, r: TimeRange, mode: CompareMode, now = new Date()): TimeRange | null {
   if (mode === 'none' || spec.preset === 'all') return null;
-  if (mode === 'previous') return previousRange(spec, r);
-  const f = new Date(r.from * 1000);
-  const t = new Date(r.to * 1000);
-  return {
-    from: sec(new Date(f.getFullYear() - 1, f.getMonth(), f.getDate())),
-    to: sec(new Date(t.getFullYear() - 1, t.getMonth(), t.getDate())),
-    ...(r.gapDays ? { gapDays: r.gapDays } : {}),
-  };
+  const nowSec = sec(now);
+  let out: TimeRange;
+  if (mode === 'previous') {
+    out = previousRange(spec, r);
+    if (r.to > nowSec && nowSec > r.from) out = { ...out, to: Math.min(out.to, out.from + (nowSec - r.from)) };
+  } else {
+    const yearBack = (t: number) => {
+      const d = new Date(t * 1000);
+      return sec(new Date(d.getFullYear() - 1, d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()));
+    };
+    out = { from: yearBack(r.from), to: yearBack(Math.min(r.to, Math.max(nowSec, r.from))) };
+    if (r.gapDays) out.gapDays = r.gapDays;
+  }
+  return out;
 }
 
 export function compareLabel(mode: CompareMode) {

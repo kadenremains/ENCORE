@@ -108,7 +108,7 @@ function installHints(lib: Library) {
     const i = trackIdx.get(`${artist.toLowerCase()}\u0000${track.toLowerCase()}`);
     if (i === undefined) return undefined;
     const al = lib.tracks[i].album;
-    return al >= 0 ? lib.albums[al].name : undefined;
+    return al >= 0 ? { name: lib.albums[al].name, artist: lib.artists[lib.albums[al].artist].name } : undefined;
   });
 }
 
@@ -138,6 +138,18 @@ async function loadLibraryFromDb(): Promise<Library> {
   const lib = buildLibrary(rows, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   installHints(lib);
   return lib;
+}
+
+/**
+ * Make this browser's downloaded data belong to `name`. Demo data, or another account's history
+ * and caches (album grouping, edit-check progress, profile), are wiped first.
+ */
+async function claimLocalData(name: string, wasDemo: boolean) {
+  const owner = (await getMeta<string>('syncedUser')) ?? (await getStoredUser())?.name;
+  if (wasDemo || (owner && owner.toLowerCase() !== name.toLowerCase())) {
+    await db.scrobbles.clear();
+    await db.meta.clear();
+  }
 }
 
 let checkingSingles = false;
@@ -176,10 +188,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (auth?.user) {
       const cur = get().username;
       if (get().demo || !cur || cur.toLowerCase() !== auth.user.toLowerCase()) {
-        if (get().demo) {
-          await db.scrobbles.clear();
-          await db.meta.clear();
-        }
+        await claimLocalData(auth.user, get().demo);
         LS.set('sw.username', auth.user);
         LS.set('sw.demo', '0');
         set({ username: auth.user, demo: false });
@@ -200,7 +209,7 @@ export const useApp = create<AppState>((set, get) => ({
     LS.set('sw.username', user.name);
     LS.set('sw.apiKey', apiKey.trim());
     LS.set('sw.demo', '0');
-    if (get().demo) await db.scrobbles.clear();
+    await claimLocalData(user.name, get().demo);
     await setMeta('user', user);
     set({ username: user.name, apiKey: apiKey.trim(), user, demo: false, view: 'app', lib: await loadLibraryFromDb() });
     await get().runSync();
@@ -389,10 +398,7 @@ export const useApp = create<AppState>((set, get) => ({
   adoptUser: async (name) => {
     const { username, demo } = get();
     if (!demo && username && username.toLowerCase() === name.toLowerCase()) return;
-    if (demo) {
-      await db.scrobbles.clear();
-      await db.meta.clear();
-    }
+    await claimLocalData(name, demo);
     LS.set('sw.username', name);
     LS.set('sw.demo', '0');
     set({ username: name, demo: false, user: null, view: 'app', lib: await loadLibraryFromDb() });

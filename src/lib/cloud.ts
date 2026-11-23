@@ -198,7 +198,8 @@ export async function signOut() {
   LS.set(K.auth, null);
   LS.set(K.cursor, null);
   LS.set(K.pushedAt, null);
-  useCloud.setState({ token: null, user: null, status: 'idle', error: null });
+  LS.set(K.rejected, null);
+  useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false });
 }
 
 /* ---------------- sync ---------------- */
@@ -439,7 +440,8 @@ export function initCloud(h: Hooks) {
   setChangeListener(() => {
     changeSeq++;
     if (useCloud.getState().token) useCloud.setState({ dirty: true });
-    scheduleSync();
+    // a change saved while the app is being hidden goes up right away (timers may not run later)
+    scheduleSync(document.visibilityState === 'hidden' ? 0 : 1200);
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleSync(300);

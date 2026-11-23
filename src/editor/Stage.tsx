@@ -76,7 +76,10 @@ export function Stage({ zoom }: { zoom: 'fit' | number }) {
       let bd = snapT;
       for (const l of lines) {
         const dd = Math.abs(l - v);
-        if (dd < bd) ((bd = dd), (best = l));
+        if (dd < bd) {
+          bd = dd;
+          best = l;
+        }
       }
       if (best !== v) out.push(best);
       return best;
