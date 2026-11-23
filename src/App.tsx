@@ -17,6 +17,7 @@ import { runMaintenance } from './lib/maintenance';
 import { useEditor } from './editor/editorStore';
 import type { CompareMode } from './lib/range';
 import type { RangeSpec } from './lib/types';
+import { applyUpdate, startUpdateChecks, useUpdate } from './lib/updates';
 
 function startCloud() {
   setOnSignedIn((name) => void useApp.getState().adoptUser(name));
@@ -51,7 +52,26 @@ function startCloud() {
   });
 }
 
+function UpdateToast() {
+  const available = useUpdate((s) => s.available);
+  if (!available) return null;
+  return (
+    <button className="update-toast" onClick={() => applyUpdate()}>
+      New version of Encore · <b>Reload</b>
+    </button>
+  );
+}
+
 export default function App() {
+  return (
+    <>
+      <Main />
+      <UpdateToast />
+    </>
+  );
+}
+
+function Main() {
   const view = useApp((s) => s.view);
   const init = useApp((s) => s.init);
   const route = useRoute();
@@ -59,6 +79,7 @@ export default function App() {
   useEffect(() => {
     // shrink oversized old pictures first so the first sync sends the light versions
     init().then(runMaintenance).catch(() => {}).then(startCloud);
+    startUpdateChecks();
   }, [init]);
   const lib = useApp((s) => s.lib);
   const demo = useApp((s) => s.demo);

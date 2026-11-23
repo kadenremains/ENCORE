@@ -3279,3 +3279,22 @@ a.hl:hover {
   opacity: 0.7;
   letter-spacing: 0.04em;
 }
+
+/* "new version" button, above the bottom tabs and the iPhone home bar */
+.update-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 200;
+  padding: 10px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
