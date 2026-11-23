@@ -15,12 +15,39 @@ export interface Library {
   track: Int32Array;
   album: Int32Array; // -1 when no album
   artists: { name: string }[];
-  tracks: { name: string; artist: number; album: number }[];
+  tracks: { name: string; artist: number; album: number; img?: string; single?: string }[];
   albums: { name: string; artist: number; img?: string }[];
   firstSeen: Record<EntityKind, Float64Array>;
   /** lowercase lookup keys -> index */
   keys: { artist: Map<string, number>; album: Map<string, number>; track: Map<string, number> };
+  /** one-song releases (hidden from albums, plus any you chose to keep) */
+  singles: SingleInfo[];
+  /** one-song albums whose real track count we haven't asked Last.fm about yet */
+  singleCandidates: { key: string; name: string; artist: string; plays: number }[];
 }
+
+export interface SingleInfo {
+  key: string;
+  name: string;
+  artist: string; // album artist
+  track: string; // the one song you played from it
+  plays: number;
+  /** where the "one song" decision came from */
+  source: 'lastfm' | 'scrobbles';
+  hidden: boolean; // false = you chose to keep it as an album
+}
+
+export interface BuildOptions {
+  albumArtists?: AlbumArtistList;
+  /** album key -> number of songs on it per Last.fm (-1 = Last.fm doesn't know it) */
+  albumTrackCounts?: Record<string, number>;
+  hideSingles?: boolean;
+  /** album keys you chose to keep as albums even though they're singles */
+  keepAlbums?: Set<string>;
+}
+
+/** Stable id for an album: album artist + album name. */
+export const albumKey = (artist: string, album: string) => `${artist.toLowerCase()}|${album.toLowerCase()}`;
 
 let versionCounter = 1;
 
@@ -69,9 +96,43 @@ function albumArtistResolver(rows: StoredScrobble[], list: AlbumArtistList | und
   return resolved;
 }
 
-export function buildLibrary(rows: StoredScrobble[], albumArtists?: AlbumArtistList): Library {
+export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): Library {
   rows.sort((a, b) => a.ts - b.ts);
-  const albumArtistOf = albumArtistResolver(rows, albumArtists);
+  const albumArtistOf = albumArtistResolver(rows, opts.albumArtists);
+
+  // ---- singles: albums you've only played one distinct song from ----
+  // Last.fm's track count wins (2+ songs = a real album even if you've played one of them);
+  // if Last.fm doesn't know the album, your scrobbles decide. A second song played later
+  // automatically turns it back into an album.
+  const albumSongs = new Map<string, { songs: Set<string>; name: string; artist: string; track: string; plays: number }>();
+  for (const r of rows) {
+    if (!r.al) continue;
+    const ak = r.ar.toLowerCase();
+    const aa = albumArtistOf.get(`${r.al.toLowerCase()}\u0000${ak}`) ?? r.ar;
+    const key = albumKey(aa, r.al);
+    let m = albumSongs.get(key);
+    if (!m) albumSongs.set(key, (m = { songs: new Set(), name: r.al, artist: aa, track: r.tr, plays: 0 }));
+    m.songs.add(ak + '\u0000' + r.tr.toLowerCase());
+    m.plays++;
+  }
+  const counts = opts.albumTrackCounts ?? {};
+  const hideSingles = opts.hideSingles !== false;
+  const keep = opts.keepAlbums ?? new Set<string>();
+  const hidden = new Set<string>();
+  const singles: SingleInfo[] = [];
+  const singleCandidates: Library['singleCandidates'] = [];
+  for (const [key, m] of albumSongs) {
+    if (m.songs.size > 1) continue;
+    const lfm = counts[key];
+    if (lfm === undefined) singleCandidates.push({ key, name: m.name, artist: m.artist, plays: m.plays });
+    if (lfm !== undefined && lfm >= 2) continue; // a real album on Last.fm
+    const isHidden = hideSingles && !keep.has(key);
+    if (isHidden) hidden.add(key);
+    singles.push({ key, name: m.name, artist: m.artist, track: m.track, plays: m.plays, source: lfm === 1 ? 'lastfm' : 'scrobbles', hidden: isHidden });
+  }
+  singles.sort((a, b) => b.plays - a.plays);
+  singleCandidates.sort((a, b) => b.plays - a.plays); // check the ones you play most first
+
   const n = rows.length;
   const ts = new Float64Array(n);
   const day = new Int32Array(n);
@@ -112,10 +173,13 @@ export function buildLibrary(rows: StoredScrobble[], albumArtists?: AlbumArtistL
     artist[i] = ai;
 
     let ali = -1;
-    if (r.al) {
-      const alk = r.al.toLowerCase();
-      // credit the album to its album artist when Last.fm files it under someone else
-      const albumArtist = albumArtistOf.get(`${alk}\u0000${ak}`);
+    let singleKey: string | undefined;
+    const alk = r.al ? r.al.toLowerCase() : '';
+    // credit the album to its album artist when Last.fm files it under someone else
+    const albumArtist = r.al ? albumArtistOf.get(`${alk}\u0000${ak}`) : undefined;
+    if (r.al && hidden.has(albumKey(albumArtist ?? r.ar, r.al))) {
+      singleKey = albumKey(albumArtist ?? r.ar, r.al); // a single: treat the song as having no album
+    } else if (r.al) {
       let aai = ai;
       if (albumArtist) {
         const aak = albumArtist.toLowerCase();
@@ -151,6 +215,10 @@ export function buildLibrary(rows: StoredScrobble[], albumArtists?: AlbumArtistL
       tracks[ti].name = r.tr;
       if (ali >= 0) tracks[ti].album = ali;
     }
+    if (singleKey) {
+      if (tracks[ti].album < 0) tracks[ti].single = singleKey;
+      if (r.img) tracks[ti].img = r.img; // keep the single's cover for the song
+    } else if (ali >= 0) tracks[ti].single = undefined;
     track[i] = ti;
   }
 
@@ -169,6 +237,8 @@ export function buildLibrary(rows: StoredScrobble[], albumArtists?: AlbumArtistL
     albums,
     firstSeen: { artist: Float64Array.from(aFirst), track: Float64Array.from(tFirst), album: Float64Array.from(alFirst) },
     keys: { artist: aMap, album: alMap, track: tMap },
+    singles,
+    singleCandidates,
   };
 }
 

@@ -3174,3 +3174,26 @@ a.hl:hover {
   color: #e6c36a;
   line-height: 1.45;
 }
+.singles {
+  margin-top: 30px;
+}
+.singles-help {
+  margin: 10px 0 14px;
+  line-height: 1.55;
+  max-width: 760px;
+}
+.ledger-row.single-row {
+  grid-template-columns: 0 38px minmax(0, 1fr) auto;
+}
+.single-row a.ledger-ttl {
+  color: inherit;
+  text-decoration: none;
+}
+.single-row a.ledger-ttl:hover {
+  text-decoration: underline;
+}
+.single-note {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 10px;
+}

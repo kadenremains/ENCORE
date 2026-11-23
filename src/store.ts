@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
-import { fetchAlbumArtists, fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
+import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
@@ -60,6 +60,11 @@ interface AppState {
   disconnect: () => Promise<void>;
   /** switch to a Last.fm account that just signed in (from another browser view) */
   adoptUser: (name: string) => Promise<void>;
+  albumPrefs: AlbumPrefs;
+  setAlbumPrefs: (p: AlbumPrefs, opts?: { fromSync?: boolean }) => Promise<void>;
+  reloadLibrary: () => Promise<void>;
+  /** background: ask Last.fm how many songs one-song albums really have */
+  checkSingles: () => Promise<void>;
 }
 
 function installHints(lib: Library) {
@@ -91,7 +96,7 @@ function installHints(lib: Library) {
       const i = trackIdx.get(`${a}\u0000${name.toLowerCase()}`);
       if (i === undefined) return undefined;
       const al = lib.tracks[i].album;
-      return al >= 0 ? lib.albums[al].img : undefined;
+      return al >= 0 ? lib.albums[al].img : lib.tracks[i].img; // singles keep their own cover
     }
     if (!artistArt) buildArtistArt();
     return artistArt!.get(a);
@@ -103,12 +108,35 @@ function installHints(lib: Library) {
   });
 }
 
+/** Album display preferences (synced): hide one-song releases, and the ones you chose to keep. */
+export interface AlbumPrefs {
+  hideSingles: boolean;
+  keep: string[];
+}
+
+export function loadAlbumPrefs(): AlbumPrefs {
+  try {
+    const v = JSON.parse(localStorage.getItem('sw.albums') || 'null');
+    if (v && typeof v.hideSingles === 'boolean' && Array.isArray(v.keep)) return v;
+  } catch {
+    /* default */
+  }
+  return { hideSingles: true, keep: [] };
+}
+
+type TrackCounts = Record<string, [number, number]>; // album key -> [songs on Last.fm or -1, fetched at]
+
 async function loadLibraryFromDb(): Promise<Library> {
-  const [rows, albumArtists] = await Promise.all([db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists')]);
-  const lib = buildLibrary(rows, albumArtists);
+  const [rows, albumArtists, trackCounts] = await Promise.all([db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
+  const prefs = loadAlbumPrefs();
+  const counts: Record<string, number> = {};
+  for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
+  const lib = buildLibrary(rows, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   installHints(lib);
   return lib;
 }
+
+let checkingSingles = false;
 
 export const useApp = create<AppState>((set, get) => ({
   view: 'loading',
@@ -219,8 +247,65 @@ export const useApp = create<AppState>((set, get) => ({
       }
       if (added > 0 || albumsChanged || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
       set({ sync: { phase: 'done', done: added, total: added } });
+      void get().checkSingles();
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });
+    }
+  },
+
+  albumPrefs: loadAlbumPrefs(),
+
+  setAlbumPrefs: async (p, opts) => {
+    try {
+      localStorage.setItem('sw.albums', JSON.stringify(p));
+    } catch {
+      /* private mode */
+    }
+    set({ albumPrefs: p });
+    if (!opts?.fromSync) bumpSettings();
+    await get().reloadLibrary();
+  },
+
+  reloadLibrary: async () => {
+    if (!get().lib) return;
+    set({ lib: await loadLibraryFromDb() });
+  },
+
+  checkSingles: async () => {
+    if (checkingSingles) return;
+    const { username, apiKey, demo } = get();
+    if (demo || !username || (!apiKey && !API_URL)) return;
+    checkingSingles = true;
+    try {
+      const counts: TrackCounts = (await getMeta<TrackCounts>('albumTrackCounts')) ?? {};
+      // re-ask about albums Last.fm didn't know after 30 days
+      const stale = Date.now() - 30 * 86400_000;
+      for (const [k, [n, at]] of Object.entries(counts)) if (n === -1 && at < stale) delete counts[k];
+      const todo = (get().lib?.singleCandidates ?? []).filter((c) => !counts[c.key]);
+      let sinceSave = 0;
+      let next = 0;
+      // two at a time with a pause each: ~4 requests/s, under Last.fm's 5/s guideline
+      const worker = async () => {
+        while (next < todo.length) {
+          const c = todo[next++];
+          try {
+            counts[c.key] = [await fetchAlbumTrackCount(c.artist, c.name, apiKey), Date.now()];
+          } catch {
+            continue; // network / rate limit: try this one next time
+          }
+          await new Promise((r) => setTimeout(r, 300));
+          if (++sinceSave >= 60) {
+            sinceSave = 0;
+            await setMeta('albumTrackCounts', counts);
+            await get().reloadLibrary();
+          }
+        }
+      };
+      await Promise.all([worker(), worker()]);
+      await setMeta('albumTrackCounts', counts);
+      if (todo.length) await get().reloadLibrary();
+    } finally {
+      checkingSingles = false;
     }
   },
 

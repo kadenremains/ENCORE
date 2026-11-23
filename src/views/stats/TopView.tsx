@@ -7,6 +7,7 @@ import { routePath } from '../../router';
 import type { EntityKind } from '../../lib/types';
 import type { Ranked } from '../../lib/library';
 import { EmptyRange } from './Overview';
+import { SinglesSection } from './Singles';
 
 type Sort = 'plays' | 'climbing' | 'falling' | 'new' | 'recent';
 
@@ -97,6 +98,7 @@ export function TopView({ kind }: { kind: EntityKind }) {
           Show more · {fmtNum(rows.length - limit)} left
         </button>
       )}
+      {kind === 'album' && <SinglesSection />}
     </div>
   );
 }

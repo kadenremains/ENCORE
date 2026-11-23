@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useApp } from './store';
+import { useApp, type AlbumPrefs } from './store';
 import { useRoute } from './router';
 import { Onboard } from './views/Onboard';
 import { Editor } from './views/Editor';
@@ -29,10 +29,10 @@ function startCloud() {
       } catch {
         /* ignore */
       }
-      return { range: exploreRange, compare, milestones };
+      return { range: exploreRange, compare, milestones, albums: useApp.getState().albumPrefs };
     },
     applySettings: (raw) => {
-      const d = raw as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown };
+      const d = raw as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown; albums?: AlbumPrefs };
       try {
         if (d.range) localStorage.setItem('sw.range', JSON.stringify(d.range));
         if (d.compare) localStorage.setItem('sw.compare', d.compare);
@@ -41,6 +41,7 @@ function startCloud() {
         /* private mode */
       }
       useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });
+      if (d.albums && JSON.stringify(d.albums) !== JSON.stringify(useApp.getState().albumPrefs)) void useApp.getState().setAlbumPrefs(d.albums, { fromSync: true });
     },
     onProjectChanged: (p, id) => {
       const ed = useEditor.getState();

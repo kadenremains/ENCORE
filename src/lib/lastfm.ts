@@ -202,3 +202,16 @@ export async function fetchAlbumArtists(user: string, apiKey: string): Promise<[
   } while (page <= pages);
   return out;
 }
+
+/** How many songs Last.fm lists on an album; -1 if Last.fm doesn't know the album (or has no tracklist). */
+export async function fetchAlbumTrackCount(artist: string, album: string, apiKey: string): Promise<number> {
+  try {
+    const r = await call<{ album?: { tracks?: { track?: unknown[] | Record<string, unknown> } } }>({ method: 'album.getinfo', artist, album, autocorrect: 1 }, apiKey);
+    const t = r.album?.tracks?.track;
+    const n = Array.isArray(t) ? t.length : t ? 1 : 0;
+    return n > 0 ? n : -1;
+  } catch (e) {
+    if (e instanceof LastfmError && e.code === 6) return -1; // "Album not found"
+    throw e;
+  }
+}

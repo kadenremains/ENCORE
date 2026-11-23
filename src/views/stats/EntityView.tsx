@@ -7,11 +7,15 @@ import { entityPath, routePath } from '../../router';
 import { dayToDate, entityAllTime, entityRangeStats, findEntity, getStats, type Ranked } from '../../lib/library';
 import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
+import { SingleNote } from './Singles';
+import { useApp } from '../../store';
+import { albumKey } from '../../lib/library';
 
 export function EntityView({ kind, title, artist }: { kind: EntityKind; title: string; artist: string }) {
   const { lib, stats, prev, label, cmpLabel, range } = useRangeStats();
   const [editImg, setEditImg] = useState(false);
   const idx = findEntity(lib, kind, title, artist);
+  if (idx < 0 && kind === 'album') return <HiddenSingleAlbum title={title} artist={artist} />;
   if (idx < 0)
     return (
       <div className="page">
@@ -173,6 +177,8 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
         </>
       )}
 
+      {kind === 'track' && lib.tracks[idx].single && <SingleNote singleKey={lib.tracks[idx].single!} />}
+
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>
   );
@@ -197,5 +203,35 @@ function CreditedAlbums({ artistIdx, name }: { artistIdx: number; name: string }
     <Panel title={`Albums credited to ${name}`} right={<span className="muted small">songs on these may be by other artists</span>}>
       <Ledger compact items={items} />
     </Panel>
+  );
+}
+
+/** An old link to an album that's now hidden as a single. */
+function HiddenSingleAlbum({ title, artist }: { title: string; artist: string }) {
+  const lib = useApp((s) => s.lib)!;
+  const prefs = useApp((s) => s.albumPrefs);
+  const setPrefs = useApp((s) => s.setAlbumPrefs);
+  const x = lib.singles.find((s) => s.key === albumKey(artist, title));
+  return (
+    <div className="page">
+      {x ? (
+        <div className="empty big">
+          <div className="eyebrow">Single</div>
+          <p>
+            “{x.name}” by {x.artist} only has one song ({x.track}), so it isn't counted as an album.
+          </p>
+          <div className="row gap" style={{ justifyContent: 'center' }}>
+            <a className="btn" href={entityPath('track', x.track, x.artist)}>
+              Open the song
+            </a>
+            <button className="btn primary" onClick={() => void setPrefs({ ...prefs, keep: [...new Set([...prefs.keep, x.key])] })}>
+              Count it as an album
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="empty">Couldn't find “{title}” in your history.</p>
+      )}
+    </div>
   );
 }
