@@ -89,6 +89,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                       <button onClick={cancelSignIn}>Cancel sign-in</button>
                     </>
                   )}
+                  {!demo && <button onClick={() => void useApp.getState().checkEdits(true)}>Check for Last.fm edits</button>}
                   <a href="#/images">Manage images</a>
                   {user?.url && !demo && (
                     <a href={user.url} target="_blank" rel="noreferrer">

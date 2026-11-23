@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
-import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, syncScrobbles, type SyncProgress } from './lib/lastfm';
+import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
@@ -65,6 +65,10 @@ interface AppState {
   reloadLibrary: () => Promise<void>;
   /** background: ask Last.fm how many songs one-song albums really have */
   checkSingles: () => Promise<void>;
+  /** progress of re-checking history for edits made on Last.fm */
+  editCheck: { manual: boolean; running: boolean; done: number; total: number; changed: number } | null;
+  /** re-read history from Last.fm and apply edits/deletions; manual = the whole history now */
+  checkEdits: (manual?: boolean) => Promise<void>;
 }
 
 function installHints(lib: Library) {
@@ -137,6 +141,8 @@ async function loadLibraryFromDb(): Promise<Library> {
 }
 
 let checkingSingles = false;
+let checkingEdits = false;
+let manualEditQueued = false;
 
 export const useApp = create<AppState>((set, get) => ({
   view: 'loading',
@@ -248,12 +254,83 @@ export const useApp = create<AppState>((set, get) => ({
       if (added > 0 || albumsChanged || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
       set({ sync: { phase: 'done', done: added, total: added } });
       void get().checkSingles();
+      void get().checkEdits();
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });
     }
   },
 
   albumPrefs: loadAlbumPrefs(),
+  editCheck: null,
+
+  checkEdits: async (manual = false) => {
+    const { username, apiKey, demo, lib } = get();
+    if (demo || !username || (!apiKey && !API_URL) || !lib?.n) return;
+    if (checkingEdits) {
+      // a background check is mid-run: do the full pass right after it
+      if (manual) {
+        manualEditQueued = true;
+        set({ editCheck: { manual: true, running: true, done: 0, total: 0, changed: 0 } });
+      }
+      return;
+    }
+    checkingEdits = true;
+    const now = Math.floor(Date.now() / 1000);
+    const firstTs = lib.ts[0];
+    const recentFrom = now - 14 * 86400;
+    let changed = 0;
+    try {
+      // 1) the last two weeks, every time (most edits happen soon after listening)
+      if (await reconcileWindow(username, apiKey, recentFrom, now)) changed++;
+
+      // 2) older history, a month at a time, newest first. In the background only a couple of
+      //    months per sync, cycling through everything every few days; manual = all of it now.
+      let cursor = (await getMeta<number>('editCursor')) ?? null;
+      const passAt = (await getMeta<number>('editPassAt')) ?? 0;
+      if (manual) cursor = recentFrom;
+      else if (cursor === null && Date.now() - passAt > 3 * 86400_000) cursor = recentFrom;
+      if (cursor !== null) {
+        let months = 0;
+        for (let c = cursor; c > firstTs; c = monthStart(c - 1)) months++;
+        let done = 0;
+        if (manual) set({ editCheck: { manual: true, running: true, done, total: months, changed } });
+        let budget = manual ? Infinity : 2;
+        while (cursor > firstTs && budget-- > 0) {
+          const from = Math.max(monthStart(cursor - 1), firstTs);
+          if (await reconcileWindow(username, apiKey, from, cursor - 1)) changed++;
+          cursor = from;
+          done++;
+          await setMeta('editCursor', cursor);
+          if (manual) set({ editCheck: { manual: true, running: true, done, total: months, changed } });
+        }
+        if (cursor <= firstTs) {
+          await setMeta('editCursor', null);
+          await setMeta('editPassAt', Date.now());
+        }
+      }
+      if (changed) {
+        // names changed: refresh Last.fm's album grouping too, then rebuild everything
+        try {
+          await setMeta('albumArtists', await fetchAlbumArtists(username, apiKey));
+          await setMeta('albumArtistsAt', Date.now());
+        } catch {
+          /* rebuild with what we have */
+        }
+        set({ lib: await loadLibraryFromDb() });
+        void get().checkSingles();
+      }
+      if (manual) set({ editCheck: { manual: true, running: false, done: get().editCheck?.total ?? 0, total: get().editCheck?.total ?? 0, changed } });
+    } catch (e) {
+      if (manual) set({ editCheck: null, syncError: `Couldn't finish checking for edits: ${(e as Error).message}` });
+      console.warn('edit check failed', e);
+    } finally {
+      checkingEdits = false;
+      if (manualEditQueued) {
+        manualEditQueued = false;
+        void get().checkEdits(true);
+      }
+    }
+  },
 
   setAlbumPrefs: async (p, opts) => {
     try {

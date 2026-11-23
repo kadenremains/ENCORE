@@ -2,8 +2,24 @@ import { useApp } from '../store';
 import { fmtNum } from '../render/primitives';
 
 export function SyncPill() {
-  const { sync, syncError, runSync, demo } = useApp();
+  const { sync, syncError, runSync, demo, editCheck } = useApp();
   if (demo) return null;
+  if (editCheck?.manual && editCheck.running) {
+    const pct = editCheck.total ? Math.min(100, (editCheck.done / editCheck.total) * 100) : 0;
+    return (
+      <span className="pill syncing">
+        <span className="spinner" />
+        Checking for edits {editCheck.done}/{editCheck.total} months
+        <span className="pill-bar" style={{ width: `${pct}%` }} />
+      </span>
+    );
+  }
+  if (editCheck?.manual && !editCheck.running)
+    return (
+      <button className="pill" onClick={() => useApp.setState({ editCheck: null })} title="Dismiss">
+        ✓ {editCheck.changed ? `Edits applied in ${editCheck.changed} month${editCheck.changed > 1 ? 's' : ''}` : 'No edits found, all up to date'}
+      </button>
+    );
   if (syncError)
     return (
       <button className="pill error" onClick={() => runSync()} title={syncError}>

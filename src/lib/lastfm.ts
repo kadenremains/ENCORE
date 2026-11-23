@@ -215,3 +215,48 @@ export async function fetchAlbumTrackCount(artist: string, album: string, apiKey
     throw e;
   }
 }
+
+/* ---------------- picking up edits made on Last.fm (Pro scrobble editing) ---------------- */
+
+/** All scrobbles in [from, to] (unix seconds, inclusive) straight from Last.fm. */
+async function fetchWindow(user: string, apiKey: string, from: number, to: number): Promise<StoredScrobble[]> {
+  const base = { method: 'user.getrecenttracks', user, limit: 200, from, to };
+  const first = await call<RecentResponse>({ ...base, page: 1 }, apiKey);
+  const pages = Number(first.recenttracks['@attr']?.totalPages) || 0;
+  const out = parseTracks(first);
+  let next = 2;
+  const worker = async () => {
+    while (next <= pages) {
+      const page = next++;
+      out.push(...parseTracks(await call<RecentResponse>({ ...base, page }, apiKey)));
+      await sleep(150);
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  return out.filter((s) => s.ts >= from && s.ts <= to);
+}
+
+const sig = (s: StoredScrobble) => `${s.ts}\u0001${s.ar}\u0001${s.tr}\u0001${s.al}`;
+
+/**
+ * Re-read a stretch of history from Last.fm and replace what's stored if anything differs
+ * (renamed artists/songs/albums, deleted scrobbles). Returns whether something changed.
+ */
+export async function reconcileWindow(user: string, apiKey: string, from: number, to: number): Promise<boolean> {
+  const remote = await fetchWindow(user, apiKey, from, to);
+  const local = await db.scrobbles.where('ts').between(from, to, true, true).toArray();
+  const a = remote.map(sig).sort();
+  const b = local.map(sig).sort();
+  if (a.length === b.length && a.every((x, i) => x === b[i])) return false;
+  await db.transaction('rw', db.scrobbles, async () => {
+    await db.scrobbles.where('ts').between(from, to, true, true).delete();
+    if (remote.length) await db.scrobbles.bulkAdd(remote);
+  });
+  return true;
+}
+
+/** Start of the calendar month containing `ts` (unix seconds). */
+export function monthStart(ts: number) {
+  const d = new Date(ts * 1000);
+  return Math.floor(new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000);
+}
