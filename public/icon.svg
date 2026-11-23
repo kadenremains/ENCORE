@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="0.3" cy="0.22" r="0.95">
+      <stop offset="0" stop-color="#1c1c22"/>
+      <stop offset="0.6" stop-color="#0e0e12"/>
+      <stop offset="1" stop-color="#08080a"/>
+    </radialGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f6fa"/>
+      <stop offset="0.55" stop-color="#c3c8d1"/>
+      <stop offset="1" stop-color="#7d8594"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- archival frame with corner brackets -->
+  <rect x="44" y="44" width="424" height="424" fill="none" stroke="#c8cdd6" stroke-opacity=".13" stroke-width="2"/>
+  <g stroke="#e8ebf1" stroke-opacity=".5" stroke-width="3" fill="none">
+    <path d="M44 76V44h32"/><path d="M436 44h32v32"/><path d="M468 436v32h-32"/><path d="M76 468H44v-32"/>
+  </g>
+  <!-- the disc -->
+  <circle cx="256" cy="256" r="150" fill="url(#disc)"/>
+  <g fill="none" stroke="#0b0b0f" stroke-opacity=".09" stroke-width="2">
+    <circle cx="256" cy="256" r="132"/><circle cx="256" cy="256" r="116"/><circle cx="256" cy="256" r="100"/><circle cx="256" cy="256" r="84"/>
+  </g>
+  <path d="M256 106a150 150 0 0 1 0 300z" fill="#0b0b0f" opacity=".42"/>
+  <circle cx="256" cy="256" r="150" fill="url(#shine)" opacity=".5"/>
+  <circle cx="256" cy="256" r="40" fill="#0b0b0f"/>
+  <circle cx="256" cy="256" r="40" fill="none" stroke="#e8ebf1" stroke-opacity=".18" stroke-width="2"/>
+</svg>
