@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Logo } from '../ui/Logo';
 import { useApp } from '../store';
-import { cancelSignIn, checkHealth, pollPending, startSignIn, useCloud } from '../lib/cloud';
+import { checkHealth, startSignIn, useCloud } from '../lib/cloud';
+import { SignInWaiting } from '../ui/SignInWaiting';
 import { API_URL } from '../config';
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -69,17 +70,7 @@ export function Onboard() {
         {signIn && (
           <>
             {waiting ? (
-              <div className="waiting-box">
-                <span className="cloud-dot busy" /> Approve Encore on Last.fm, then come back here. It signs in by itself.
-                <div className="row gap" style={{ marginTop: 10 }}>
-                  <button className="btn primary" onClick={() => void pollPending()}>
-                    I approved it
-                  </button>
-                  <button className="btn" onClick={cancelSignIn}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <SignInWaiting />
             ) : (
               <button className="btn primary big" onClick={startSignIn}>
                 Sign in with Last.fm

@@ -12,6 +12,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.5.1',
+    date: '2026-11-24',
+    title: 'Home-screen sign-in goes through Safari',
+    notes: [
+      { text: 'On iPhone, signing in from the home-screen app now opens Last.fm in Safari, where you’re usually already logged in, instead of the app’s little browser (where Last.fm’s login fails). Approve there, come back, and the app signs in by itself.' },
+      { text: 'If Safari doesn’t open, “Sign in here instead” uses the old way.' },
+    ],
+  },
+  {
     version: '2.5',
     date: '2026-11-24',
     title: 'Sign-in that just works',

@@ -4033,3 +4033,8 @@ kbd {
   font-size: 12.5px;
   line-height: 1.5;
 }
+
+.waiting-fallback {
+  display: block;
+  margin-top: 10px;
+}

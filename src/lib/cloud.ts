@@ -231,6 +231,13 @@ export async function checkHealth() {
 
 const PENDING = 'sw.cloud.pending';
 
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/** Running as an app added to the home screen. */
+export function isHomeScreenApp() {
+  return isStandalone();
+}
+
 function isStandalone() {
   return (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
 }
@@ -243,20 +250,39 @@ function isStandalone() {
 export function startSignIn() {
   if (!API_URL) return;
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  LS.set(PENDING, JSON.stringify({ id, at: Date.now() }));
+  const back = location.origin + location.pathname;
+  const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}`;
+  LS.set(PENDING, JSON.stringify({ id, at: Date.now(), url }));
   // remembers which tab started it: only that tab may clear the "waiting" marker on its way back
   try {
     sessionStorage.setItem('sw.signinHere', id);
   } catch {
     /* ignore */
   }
-  const back = location.origin + location.pathname;
-  const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}`;
   useCloud.setState({ waiting: true });
   if (isStandalone()) {
-    window.open(url, '_blank');
+    // iPhone home-screen apps open links in a little browser of their own, where Last.fm's login
+    // form fails. Open the page in Safari itself instead (where you're usually logged in to
+    // Last.fm); approving there signs this app in when you come back. Elsewhere: a normal pop-up.
+    if (isIOS()) location.href = `x-safari-${url}`;
+    else window.open(url, '_blank');
     void pollPending();
   } else location.href = url;
+}
+
+/** The sign-in link that's waiting to be approved, if any. */
+function pendingUrl(): string | null {
+  try {
+    return (JSON.parse(LS.get(PENDING) || 'null') as { url?: string } | null)?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback when Safari didn't open (older iPhones): continue in the app's own little browser. */
+export function signInHereInstead() {
+  const url = pendingUrl();
+  if (url) window.open(url, '_blank');
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | undefined;

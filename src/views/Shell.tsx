@@ -7,7 +7,7 @@ import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import { dayToDate } from '../lib/library';
 import type { CompareMode } from '../lib/range';
-import { cancelSignIn, pollPending, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, isHomeScreenApp, pollPending, syncNow, useCloud } from '../lib/cloud';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -113,7 +113,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
 
       {cloud.waiting && !cloud.token && (
         <div className="demo-banner notice">
-          <span className="cloud-dot busy" /> Approve Encore on Last.fm, then come back here. It signs in automatically.{' '}
+          <span className="cloud-dot busy" /> Approve Encore on Last.fm{isHomeScreenApp() ? ' in Safari' : ''}, then come back here. It signs in automatically.{' '}
           <button className="link" onClick={() => void pollPending()}>
             Check now
           </button>{' '}

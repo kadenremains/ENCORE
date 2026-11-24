@@ -11,7 +11,7 @@ import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../li
 import { ACCENTS, PALETTES } from '../lib/looks';
 import { APP_VERSION, CHANGELOG } from '../lib/changelog';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
-import { cancelSignIn, deleteAccountData, fetchAdminStats, fetchOwnerNotes, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
+import { deleteAccountData, fetchAdminStats, fetchOwnerNotes, forceFullSync, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
@@ -21,6 +21,7 @@ import { API_URL } from '../config';
 import { SinglesSettings } from './stats/Singles';
 import { ImagesManager } from './ImagesManager';
 import { MyPictureControls } from '../ui/MyPicture';
+import { SignInWaiting } from '../ui/SignInWaiting';
 
 const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'account', label: 'Account & sync', icon: '◉', desc: 'Last.fm, devices, API key' },
@@ -207,17 +208,7 @@ function AccountTab() {
             </Row>
           </>
         ) : cloud.waiting ? (
-          <div className="waiting-box">
-            <span className="cloud-dot busy" /> Approve Encore on Last.fm, then come back here. It signs in by itself.
-            <div className="row gap" style={{ marginTop: 10 }}>
-              <button className="btn primary" onClick={() => void pollPending()}>
-                I approved it
-              </button>
-              <button className="btn" onClick={cancelSignIn}>
-                Cancel
-              </button>
-            </div>
-          </div>
+          <SignInWaiting />
         ) : cloud.available?.signIn ? (
           <>
             {cloud.error && <p className="error small">{cloud.error}</p>}
