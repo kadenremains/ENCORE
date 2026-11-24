@@ -517,7 +517,7 @@ const ACCENTS: { id: Prefs['accent']; name: string; color: string }[] = [
 
 function AppearanceTab() {
   const prefs = usePrefs();
-  const changed = (['palette', 'accent', 'textSize', 'grain', 'motion'] as const).some((k) => prefs[k] !== DEFAULT_PREFS[k]);
+  const changed = (['palette', 'accent', 'textSize', 'grain', 'motion', 'heroBg', 'heroBgStrength'] as const).some((k) => prefs[k] !== DEFAULT_PREFS[k]);
   return (
     <>
       <Group title="Palette" desc="Changes the app only. Your wrappeds keep their own themes.">
@@ -544,6 +544,30 @@ function AppearanceTab() {
           ))}
         </div>
       </Group>
+      <Group title="Overview card" desc="The blurred picture behind your numbers at the top of Overview.">
+        <Row label="Picture">
+          <select className="select" value={prefs.heroBg} onChange={(e) => setPrefs({ heroBg: e.target.value as Prefs['heroBg'] })}>
+            <option value="avatar">My Last.fm profile picture</option>
+            <option value="artist">My #1 artist</option>
+            <option value="album">My #1 album</option>
+            <option value="mine">My picture (Settings → Images)</option>
+            <option value="none">No picture</option>
+          </select>
+        </Row>
+        {prefs.heroBg !== 'none' && (
+          <Row label="Strength">
+            <Segmented
+              value={prefs.heroBgStrength}
+              onChange={(v) => setPrefs({ heroBgStrength: v })}
+              options={[
+                { value: 'subtle', label: 'Subtle' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'strong', label: 'Strong' },
+              ]}
+            />
+          </Row>
+        )}
+      </Group>
       <Group title="Display">
         <Row label="Text size" hint="Scales the stats pages.">
           <Segmented
@@ -564,7 +588,7 @@ function AppearanceTab() {
         </Row>
       </Group>
       {changed && (
-        <button className="btn" onClick={() => resetPrefs(['palette', 'accent', 'textSize', 'grain', 'motion'])}>
+        <button className="btn" onClick={() => resetPrefs(['palette', 'accent', 'textSize', 'grain', 'motion', 'heroBg', 'heroBgStrength'])}>
           Back to the original look
         </button>
       )}

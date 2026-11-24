@@ -12,6 +12,9 @@ export interface Prefs {
   textSize: 'small' | 'normal' | 'large';
   grain: boolean;
   motion: boolean;
+  /** the picture behind the Overview card, and how strongly it shows */
+  heroBg: 'avatar' | 'artist' | 'album' | 'mine' | 'none';
+  heroBgStrength: 'subtle' | 'medium' | 'strong';
   /* stats */
   hour12: boolean;
   minutesPerScrobble: number;
@@ -30,6 +33,8 @@ export const DEFAULT_PREFS: Prefs = {
   textSize: 'normal',
   grain: true,
   motion: true,
+  heroBg: 'avatar',
+  heroBgStrength: 'medium',
   hour12: true,
   minutesPerScrobble: 3.5,
   startPage: 'overview',

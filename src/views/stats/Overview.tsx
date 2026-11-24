@@ -1,5 +1,7 @@
 import { useRangeStats } from './useRangeStats';
 import { usePrefs } from '../../lib/prefs';
+import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useImagesVersion } from '../../lib/images';
+import { useApp } from '../../store';
 import { ledgerItems, KIND_LABEL, fmtPct, pct } from './helpers';
 import { BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Panel, WEEKDAYS, fmtDay, fmtHour } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
@@ -31,11 +33,7 @@ export function Overview() {
   return (
     <div className="page">
       <section className="hero grain">
-        {stats.top('album', 1)[0] && (
-          <div className="hero-art" aria-hidden>
-            <EntityImg kind="album" name={stats.top('album', 1)[0].name} artist={stats.top('album', 1)[0].artist} />
-          </div>
-        )}
+        <HeroBackground />
         <span className="corner tl" />
         <span className="corner tr" />
         <span className="corner br" />
@@ -172,6 +170,28 @@ export function EmptyRange({ label }: { label: string }) {
         <div className="eyebrow">{label}</div>
         <p>No scrobbles in this range yet. Pick another range above.</p>
       </div>
+    </div>
+  );
+}
+
+/** The blurred picture behind the Overview card: your Last.fm picture unless changed in Settings → Appearance. */
+function HeroBackground() {
+  const { stats } = useRangeStats();
+  const choice = usePrefs((p) => p.heroBg);
+  const strength = usePrefs((p) => p.heroBgStrength);
+  const avatar = useApp((s) => s.user?.image);
+  useImagesVersion(); // "My picture" can change or sync in
+  const mine = getOverride(ACCOUNT_BG_KEY)?.src;
+  const topAlbum = stats.top('album', 1)[0];
+  const topArtist = stats.top('artist', 1)[0];
+  // fall back to the #1 album when the chosen picture doesn't exist (no profile picture, no "My picture")
+  const src = choice === 'avatar' ? bigAvatar(avatar) : choice === 'mine' ? mine : undefined;
+  const kind = choice === 'artist' ? 'artist' : 'album';
+  const entity = kind === 'artist' ? topArtist : topAlbum;
+  if (choice === 'none') return null;
+  return (
+    <div className={`hero-art strength-${strength}`} aria-hidden>
+      {src ? <img src={src} alt="" /> : entity ? <EntityImg kind={kind} name={entity.name} artist={entity.artist} /> : null}
     </div>
   );
 }
