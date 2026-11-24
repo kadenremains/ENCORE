@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.4.3',
+    date: '2026-11-24',
+    title: 'Home-screen sign-in, for real this time',
+    notes: [
+      { text: 'Fixed: signing in from the iPhone home-screen app could finish in the Last.fm window but leave the app stuck on the start screen. The app now picks the sign-in up when you switch back.' },
+    ],
+  },
+  {
     version: '2.4.2',
     date: '2026-11-24',
     title: 'Signed out means back to the start',

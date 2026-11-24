@@ -50,7 +50,7 @@ export function isRejected(kind: 'project' | 'image', id: string) {
   return rejectedKeys().has(`${kind}:${id}`);
 }
 
-function loadAuth(): { token: string | null; user: string | null } {
+function loadAuth(): { token: string | null; user: string | null; at?: number } {
   try {
     const v = JSON.parse(LS.get(K.auth) || 'null');
     return v && typeof v.token === 'string' ? v : { token: null, user: null };
@@ -58,6 +58,9 @@ function loadAuth(): { token: string | null; user: string | null } {
     return { token: null, user: null };
   }
 }
+
+/** Signed in moments ago: another window may still be unlocking private sync. */
+const justSignedIn = () => Date.now() - (loadAuth().at ?? 0) < 120_000;
 
 /* ---------------- state ---------------- */
 
@@ -295,6 +298,12 @@ function beginSignIn() {
   const keys = sealKeys;
   sealKeys = null;
   LS.set(PENDING, JSON.stringify({ id, at: Date.now(), jwk: keys?.jwk }));
+  // remembers which tab started it: only that tab may clear the "waiting" marker on its way back
+  try {
+    sessionStorage.setItem('sw.signinHere', id);
+  } catch {
+    /* ignore */
+  }
   const back = location.origin + location.pathname;
   const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}${keys ? `&pk=${keys.pk}` : ''}`;
   useCloud.setState({ waiting: true });
@@ -356,7 +365,7 @@ let afterInit: (() => void)[] = [];
 
 function adoptSession(token: string, user: string, sessionKey?: string) {
   const prev = loadAuth();
-  LS.set(K.auth, JSON.stringify({ token, user }));
+  LS.set(K.auth, JSON.stringify({ token, user, at: Date.now() }));
   LS.set(K.version, SYNC_VERSION);
   if (!prev.user || prev.user.toLowerCase() !== user.toLowerCase()) {
     // a different account: start from scratch
@@ -370,7 +379,14 @@ function adoptSession(token: string, user: string, sessionKey?: string) {
     else {
       dataKey = dataKey ?? (await loadLocalKey(user));
       // no key and no way to unlock one: treat it as signed out, so signing in sets it up
-      if (!dataKey) return void signOut("Sign-in didn't finish. Please try again.");
+      if (!dataKey) {
+        // maybe another window sharing this storage is unlocking it right now: give it a moment
+        useCloud.setState({ privacy: 'setup' });
+        setTimeout(() => {
+          if (!dataKey && useCloud.getState().token === token) void signOut("Sign-in didn't finish. Please try again.");
+        }, 120_000);
+        return;
+      }
       useCloud.setState({ privacy: 'ready' });
     }
     if (dataKey) void syncNow();
@@ -391,7 +407,17 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
   const token = params.get('auth');
   const user = params.get('user');
   if (!token || !/^[0-9a-f]{64}$/.test(token) || !user) return { error: 'bad_response' };
-  LS.set(PENDING, null);
+  // Same tab that started it: done waiting. A different window (e.g. the sign-in view an iPhone
+  // home-screen app opens, which can share its storage): leave the marker so the app collects
+  // its own sign-in when you switch back.
+  let startedHere = false;
+  try {
+    startedHere = !!sessionStorage.getItem('sw.signinHere');
+    sessionStorage.removeItem('sw.signinHere');
+  } catch {
+    /* ignore */
+  }
+  if (startedHere) LS.set(PENDING, null);
   adoptSession(token, user, params.get('k') || undefined);
   return { user };
 }
@@ -795,6 +821,21 @@ export function forceFullSync() {
 
 /* ---------------- lifecycle ---------------- */
 
+/** Storage says we're signed in with a different session than this page is using. */
+function signedInElsewhere() {
+  const saved = loadAuth().token;
+  return !!saved && saved !== useCloud.getState().token;
+}
+
+/** That other window has finished unlocking private sync (its key is saved for this account). */
+function keySavedElsewhere() {
+  try {
+    return JSON.parse(LS.get(K.key) || 'null')?.user?.toLowerCase() === loadAuth().user?.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 let started = false;
 /** Bump to make every signed-in device re-upload and re-download everything once. */
 const SYNC_VERSION = '4'; // 4: pictures move to the picture store (one full re-upload)
@@ -836,7 +877,14 @@ export function initCloud(h: Hooks) {
   }, 60_000);
   // finish a sign-in that was approved while we were away (e.g. in Safari)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && LS.get(PENDING)) void pollPending();
+    if (document.visibilityState !== 'visible') return;
+    if (signedInElsewhere() && keySavedElsewhere()) return location.reload();
+    if (LS.get(PENDING)) void pollPending();
+  });
+  // another window sharing this app's storage signed in (once it has finished setting up) or out
+  window.addEventListener('storage', (e) => {
+    if (e.key === K.key && e.newValue && signedInElsewhere()) location.reload();
+    else if (e.key === K.auth && !e.newValue && useCloud.getState().token) location.reload();
   });
   if (LS.get(PENDING)) void pollPending();
   void checkHealth();
@@ -848,8 +896,12 @@ export function initCloud(h: Hooks) {
     if (token)
       void loadLocalKey(user).then((dk) => {
         dataKey = dataKey ?? dk;
-        // signed in from before private sync: sign out, so the next sign-in sets it up
-        if (!dataKey) return void signOut();
+        if (!dataKey) {
+          // another window is still unlocking private sync: wait for it (the storage listener reloads)
+          if (justSignedIn()) return void useCloud.setState({ privacy: 'setup' });
+          // signed in from before private sync: sign out, so the next sign-in sets it up
+          return void signOut();
+        }
         useCloud.setState({ privacy: 'ready' });
         if (dataKey) {
           void syncNow();
