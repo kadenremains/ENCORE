@@ -12,6 +12,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.5',
+    date: '2026-11-24',
+    title: 'Sign-in that just works',
+    notes: [
+      { text: 'Signing in is a plain Last.fm sign-in again, on any device including the home-screen app. No “couldn’t unlock” errors and no extra steps.' },
+      { text: 'Synced data is still encrypted on your device before upload. Your key is now kept by the server as a secret outside the database and given to your signed-in devices, so a new device works straight away.' },
+      { text: 'If sync can’t start (say you’re offline), it keeps trying instead of signing you out.' },
+    ],
+  },
+  {
     version: '2.4.3',
     date: '2026-11-24',
     title: 'Home-screen sign-in, for real this time',

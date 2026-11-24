@@ -3,7 +3,7 @@ import { API_URL } from '../config';
 import { db } from './db';
 import { setChangeListener, tombstones } from './changes';
 import { applyRemoteOverride, applyRemoteRemoval } from './images';
-import { blobId, fromB64, hashName, isSealed, loadDataKey, lockDataKey, newDataKey, newSealKeys, open, openPicture, openSealed, seal, sealPicture, toB64, unlockDataKey, type DataKey } from './crypto';
+import { blobId, fromB64, hashName, isSealed, loadDataKey, open, openPicture, seal, sealPicture, toB64, type DataKey } from './crypto';
 import type { Project } from '../editor/model';
 
 /* ---------------- local storage helpers ---------------- */
@@ -59,16 +59,14 @@ function loadAuth(): { token: string | null; user: string | null; at?: number } 
   }
 }
 
-/** Signed in moments ago: another window may still be unlocking private sync. */
-const justSignedIn = () => Date.now() - (loadAuth().at ?? 0) < 120_000;
 
 /* ---------------- state ---------------- */
 
 /**
- * Private sync status:
+ * Sync status:
  *  - ready: this device holds the account's data key; sync runs
- *  - setup: unlocking or creating the key right after sign-in
- *  - locked: the key on the server couldn't be opened (see error)
+ *  - setup: getting the key from the server right after sign-in
+ *  - locked: couldn't get the key (e.g. offline); retried on the next sync (see error)
  */
 export type Privacy = 'ready' | 'setup' | 'locked';
 
@@ -136,50 +134,26 @@ async function api<T>(token: string, path: string, body?: unknown): Promise<T> {
   return d;
 }
 
-interface VaultRow {
-  wrapped: string;
-  kid: string;
-}
-
 /**
- * Right after signing in with Last.fm (we have the session key): unlock the account's data key,
- * or create it on the first device. Turning private sync on for an account that synced before
- * downloads the old (readable) copies first, then the server deletes them and this device
- * uploads everything again, encrypted.
+ * After signing in: get this account's data key from the server (it keeps it locked with a
+ * server secret and hands it only to the account's own signed-in devices). An account that
+ * synced before encryption downloads the old readable copies first; the server then wipes them
+ * and this device uploads everything again, encrypted.
  */
-async function setupKey(token: string, user: string, sessionKey: string) {
-  useCloud.setState({ privacy: 'setup', error: null });
+async function setupKey(token: string, user: string) {
+  if (!dataKey) useCloud.setState({ privacy: 'setup', error: null });
   try {
     const local = await loadLocalKey(user);
-    let { vault } = await api<{ vault: VaultRow | null }>(token, '/vault');
-    if (!vault) {
+    let r = await api<{ key: string | null; kid?: string }>(token, '/vault');
+    if (!r.key) {
       await legacyPull(token);
-      const fresh = await newDataKey();
-      const r = await api<{ vault: VaultRow; created: boolean }>(token, '/vault', { mode: 'create', wrapped: await lockDataKey(fresh, sessionKey), kid: fresh.kid });
-      if (r.created) return adoptKey(user, fresh, true);
-      vault = r.vault; // another device got there first: use theirs
+      r = await api<{ key: string; kid: string }>(token, '/vault', { mode: 'create' });
     }
-    let dk: DataKey | null = null;
-    try {
-      dk = await unlockDataKey(vault.wrapped, sessionKey);
-    } catch {
-      // Last.fm gave this sign-in a different session key. A device that already holds the
-      // data key re-locks it with the new one, so the account's other devices can follow.
-      if (local && local.kid === vault.kid) {
-        await api(token, '/vault', { mode: 'replace', wrapped: await lockDataKey(local, sessionKey), kid: local.kid });
-        dk = local;
-      }
-    }
-    if (!dk || dk.kid !== vault.kid) {
-      useCloud.setState({
-        privacy: 'locked',
-        error: "Couldn't unlock your synced data with this sign-in. On a device where sync already works, turn sync off and sign in again, then try here once more.",
-      });
-      return;
-    }
-    return adoptKey(user, dk, !local || local.kid !== dk.kid);
+    const dk = await loadDataKey(fromB64(r.key!));
+    adoptKey(user, dk, !local || local.kid !== dk.kid);
   } catch (e) {
-    useCloud.setState({ privacy: 'locked', error: `Couldn't set up private sync: ${(e as Error).message}` });
+    // keep the key this device already has, if any; try again on the next start or sign-in
+    useCloud.setState({ privacy: dataKey ? 'ready' : 'locked', error: dataKey ? null : `Couldn't start syncing: ${(e as Error).message}. Pull down to retry, or sign in again.` });
   }
 }
 
@@ -196,20 +170,13 @@ function adoptKey(user: string, dk: DataKey, fresh: boolean) {
   useCloud.setState({ privacy: 'ready', error: null });
 }
 
-/**
- * Owner accounts (set on the server) see the owner stats, and keep a readable copy of their own
- * data key on the server so the owner can read their own data. Nobody else's key is ever sent.
- */
+/** Owner accounts (set on the server) see the owner stats in Settings. */
 async function checkOwner() {
   const { token } = useCloud.getState();
   if (!token || !API_URL) return;
   try {
     const me = await api<{ name: string; owner?: boolean }>(token, '/me');
     useCloud.setState({ owner: !!me.owner });
-    if (me.owner && dataKey && LS.get('sw.cloud.escrow') !== dataKey.kid) {
-      await api(token, '/vault', { mode: 'escrow', kid: dataKey.kid, key: toB64(dataKey.raw) });
-      LS.set('sw.cloud.escrow', dataKey.kid);
-    }
   } catch {
     /* try again next launch */
   }
@@ -268,36 +235,15 @@ function isStandalone() {
   return (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
 }
 
-/** Made ahead of time so the sign-in button can open Last.fm instantly (iPhone blocks late pop-ups). */
-let sealKeys: { pk: string; jwk: JsonWebKey } | null = null;
-export function prepareSignIn() {
-  if (!sealKeys && crypto.subtle) void newSealKeys().then((k) => (sealKeys = k)).catch(() => {});
-}
-
 /**
  * Start "Sign in with Last.fm". The app also registers a random pickup id and polls for the
  * session, so it gets signed in even if Last.fm's approval happens in a different browser view
- * (iOS opens links from home-screen apps in a separate view with its own storage). The session
- * key comes back sealed to a key only this app holds.
+ * (iOS opens links from home-screen apps in a separate view).
  */
 export function startSignIn() {
   if (!API_URL) return;
-  if (!sealKeys && isStandalone()) {
-    // not ready yet (rare): make the key first, then go
-    void newSealKeys()
-      .then((k) => (sealKeys = k))
-      .catch(() => {})
-      .finally(() => beginSignIn());
-    return;
-  }
-  beginSignIn();
-}
-
-function beginSignIn() {
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  const keys = sealKeys;
-  sealKeys = null;
-  LS.set(PENDING, JSON.stringify({ id, at: Date.now(), jwk: keys?.jwk }));
+  LS.set(PENDING, JSON.stringify({ id, at: Date.now() }));
   // remembers which tab started it: only that tab may clear the "waiting" marker on its way back
   try {
     sessionStorage.setItem('sw.signinHere', id);
@@ -305,13 +251,12 @@ function beginSignIn() {
     /* ignore */
   }
   const back = location.origin + location.pathname;
-  const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}${keys ? `&pk=${keys.pk}` : ''}`;
+  const url = `${API_URL}/auth/start?redirect=${encodeURIComponent(back)}&pending=${id}`;
   useCloud.setState({ waiting: true });
   if (isStandalone()) {
     window.open(url, '_blank');
     void pollPending();
   } else location.href = url;
-  prepareSignIn();
 }
 
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -319,7 +264,7 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined;
 /** Check whether a sign-in we started has been approved (anywhere). */
 export async function pollPending(): Promise<boolean> {
   clearTimeout(pollTimer);
-  let p: { id: string; at: number; jwk?: JsonWebKey } | null = null;
+  let p: { id: string; at: number } | null = null;
   try {
     p = JSON.parse(LS.get(PENDING) || 'null');
   } catch {
@@ -332,12 +277,10 @@ export async function pollPending(): Promise<boolean> {
   }
   try {
     const r = await fetch(`${API_URL}/auth/poll?id=${p.id}`);
-    const d = (await r.json()) as { token?: string; user?: string; sealed?: string };
+    const d = (await r.json()) as { token?: string; user?: string };
     if (d.token && d.user) {
       LS.set(PENDING, null);
-      let sessionKey: string | undefined;
-      if (d.sealed && p.jwk) sessionKey = await openSealed(d.sealed, p.jwk).catch(() => undefined);
-      adoptSession(d.token, d.user, sessionKey);
+      adoptSession(d.token, d.user);
       onSignedIn?.(d.user);
       return true;
     }
@@ -363,7 +306,7 @@ export function setOnSignedIn(fn: (user: string) => void) {
 /** Work that has to wait until the app has wired up its sync hooks. */
 let afterInit: (() => void)[] = [];
 
-function adoptSession(token: string, user: string, sessionKey?: string) {
+function adoptSession(token: string, user: string) {
   const prev = loadAuth();
   LS.set(K.auth, JSON.stringify({ token, user, at: Date.now() }));
   LS.set(K.version, SYNC_VERSION);
@@ -374,25 +317,22 @@ function adoptSession(token: string, user: string, sessionKey?: string) {
     LS.set(K.pushedAt, null);
   }
   useCloud.setState({ token, user, error: null, waiting: false });
-  const run = async () => {
-    if (sessionKey) await setupKey(token, user, sessionKey);
-    else {
-      dataKey = dataKey ?? (await loadLocalKey(user));
-      // no key and no way to unlock one: treat it as signed out, so signing in sets it up
-      if (!dataKey) {
-        // maybe another window sharing this storage is unlocking it right now: give it a moment
-        useCloud.setState({ privacy: 'setup' });
-        setTimeout(() => {
-          if (!dataKey && useCloud.getState().token === token) void signOut("Sign-in didn't finish. Please try again.");
-        }, 120_000);
-        return;
-      }
-      useCloud.setState({ privacy: 'ready' });
-    }
-    if (dataKey) void syncNow();
-  };
+  const run = () => startSyncing(token, user);
   if (hooks) void run();
   else afterInit.push(() => void run());
+}
+
+/** Signed in: use this device's key right away if it has one, and check it with the server. */
+async function startSyncing(token: string, user: string) {
+  const local = dataKey ?? (await loadLocalKey(user));
+  if (local) {
+    dataKey = local;
+    useCloud.setState({ privacy: 'ready' });
+    void syncNow();
+  }
+  await setupKey(token, user);
+  void checkOwner();
+  if (dataKey) void syncNow();
 }
 
 /** If we just came back from "Sign in with Last.fm", store the session. */
@@ -400,7 +340,7 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
   const h = location.hash;
   if (!h.startsWith('#auth=') && !h.startsWith('#auth_error=')) return null;
   const params = new URLSearchParams(h.slice(1));
-  // the address (with the session key in it) is replaced before anything else happens
+  // the address (with the sign-in token in it) is replaced before anything else happens
   history.replaceState(null, '', location.pathname + location.search + '#/');
   const err = params.get('auth_error');
   if (err) return { error: err };
@@ -418,7 +358,7 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
     /* ignore */
   }
   if (startedHere) LS.set(PENDING, null);
-  adoptSession(token, user, params.get('k') || undefined);
+  adoptSession(token, user);
   return { user };
 }
 
@@ -444,11 +384,8 @@ export async function signOut(why = "You've been signed out. Sign in again to ke
   LS.set(K.pushedAt, null);
   LS.set(K.rejected, null);
   LS.set(K.key, null);
-  LS.set('sw.cloud.escrow', null);
   dataKey = null;
   useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false, privacy: null, owner: false });
-  // ready for the next sign-in (home-screen apps need this key before Last.fm opens)
-  prepareSignIn();
   if (token) onSignedOut?.(why);
 }
 
@@ -618,7 +555,11 @@ async function pictureNames(dk: DataKey): Promise<Map<string, string>> {
 async function doSync() {
   const { token, user } = useCloud.getState();
   if (!token || !API_URL || !user) return;
-  if (!dataKey) return; // still being set up right after sign-in
+  if (!dataKey) {
+    // the key didn't arrive earlier (offline?): try again; otherwise it's still being set up
+    if (useCloud.getState().privacy === 'locked') await setupKey(token, user);
+    if (!dataKey) return;
+  }
   const dk = dataKey;
   useCloud.setState({ status: 'syncing', error: null });
   const seqAtStart = changeSeq;
@@ -844,7 +785,6 @@ export function initCloud(h: Hooks) {
   hooks = h;
   if (started || !API_URL) return;
   started = true;
-  prepareSignIn(); // even when signed in: this device may be signed out by the server at any time
   if (useCloud.getState().token && LS.get(K.version) !== SYNC_VERSION) {
     LS.set(K.pushedAt, null);
     LS.set(K.cursor, null);
@@ -893,20 +833,6 @@ export function initCloud(h: Hooks) {
   if (queued.length) queued.forEach((f) => f());
   else {
     const { token, user } = useCloud.getState();
-    if (token)
-      void loadLocalKey(user).then((dk) => {
-        dataKey = dataKey ?? dk;
-        if (!dataKey) {
-          // another window is still unlocking private sync: wait for it (the storage listener reloads)
-          if (justSignedIn()) return void useCloud.setState({ privacy: 'setup' });
-          // signed in from before private sync: sign out, so the next sign-in sets it up
-          return void signOut();
-        }
-        useCloud.setState({ privacy: 'ready' });
-        if (dataKey) {
-          void syncNow();
-          void checkOwner();
-        }
-      });
+    if (token && user) void startSyncing(token, user);
   }
 }

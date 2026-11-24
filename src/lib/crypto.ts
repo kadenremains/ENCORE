@@ -1,11 +1,9 @@
 /**
- * End-to-end encryption for sync. Everything that leaves the device (wrappeds, pictures,
- * settings) is encrypted with the account's data key, which never leaves your devices
- * unencrypted. The server keeps the data key only locked with a key derived from your Last.fm
- * session key, which it hands to your browser at sign-in and doesn't store.
+ * Encryption for sync. Everything that leaves the device (wrappeds, pictures, settings) is
+ * encrypted with the account's data key before upload. The server stores that key locked with a
+ * server secret kept outside the database, and gives it only to the account's signed-in devices.
  *
  *  - data key: 32 random bytes, AES-256-GCM
- *  - lock key: HKDF-SHA256(Last.fm session key) -> AES-256-GCM
  *  - values:   "e1:" + ("z" gzip | "p" plain) + base64(iv | ciphertext)
  *  - picture names: "h:" + HMAC-SHA256(name) under a key derived from the data key
  */
@@ -29,7 +27,6 @@ export function fromB64(b64: string): Uint8Array<ArrayBuffer> {
 }
 
 const toB64u = (b: Uint8Array) => toB64(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const fromB64u = (s: string) => fromB64(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
 
 const hex = (b: ArrayBuffer | Uint8Array) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
 
@@ -59,29 +56,6 @@ export async function loadDataKey(raw: Uint8Array<ArrayBuffer>): Promise<DataKey
   const mac = await crypto.subtle.importKey('raw', macBits, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const kid = hex(await crypto.subtle.digest('SHA-256', raw)).slice(0, 32);
   return { raw, aes, mac, kid };
-}
-
-export function newDataKey(): Promise<DataKey> {
-  return loadDataKey(crypto.getRandomValues(new Uint8Array(32)));
-}
-
-/** The key that locks the data key, from the Last.fm session key. */
-async function lockKey(sessionKey: string): Promise<CryptoKey> {
-  const base = await crypto.subtle.importKey('raw', enc.encode(sessionKey), 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode('encore-vault-v1'), info: enc.encode('lock') }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
-
-export async function lockDataKey(dk: DataKey, sessionKey: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await lockKey(sessionKey), dk.raw));
-  return toB64(concat(iv, ct));
-}
-
-/** Throws if the session key doesn't open it. */
-export async function unlockDataKey(wrapped: string, sessionKey: string): Promise<DataKey> {
-  const b = fromB64(wrapped);
-  const raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, await lockKey(sessionKey), b.subarray(12)));
-  return loadDataKey(raw);
 }
 
 /* ---------------- values ---------------- */
@@ -120,26 +94,6 @@ export async function open(value: string, dk: DataKey): Promise<string> {
 export async function hashName(name: string, dk: DataKey): Promise<string> {
   const sig = await crypto.subtle.sign('HMAC', dk.mac, enc.encode(name));
   return `h:${toB64u(new Uint8Array(sig).subarray(0, 18))}`;
-}
-
-/* ---------------- sign-in: receiving the session key sealed to this app ---------------- */
-
-/** A throwaway key pair; the public half goes to the server so it can seal the session key to us. */
-export async function newSealKeys(): Promise<{ pk: string; jwk: JsonWebKey }> {
-  const kp = (await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])) as CryptoKeyPair;
-  const pub = new Uint8Array((await crypto.subtle.exportKey('raw', kp.publicKey)) as ArrayBuffer);
-  return { pk: toB64u(pub), jwk: (await crypto.subtle.exportKey('jwk', kp.privateKey)) as JsonWebKey };
-}
-
-/** Open what the server sealed to us (matches sealTo in the worker). */
-export async function openSealed(sealed: string, jwk: JsonWebKey): Promise<string> {
-  const b = fromB64u(sealed);
-  const priv = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-  const their = await crypto.subtle.importKey('raw', b.subarray(0, 65), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
-  const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: their }, priv, 256);
-  const aes = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', bits), 'AES-GCM', false, ['decrypt']);
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(65, 77) }, aes, b.subarray(77));
-  return dec.decode(pt);
 }
 
 /* ---------------- pictures (stored as encrypted binary, once per account) ---------------- */

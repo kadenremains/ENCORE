@@ -8,13 +8,14 @@ import { md5 } from './md5';
  *  - GET  /auth/callback     Last.fm redirects here; we create a session and bounce back to the site
  *  - GET  /auth/poll         a waiting app picks up its session (sign-in finished in another browser view)
  *  - GET  /me                who am I
- *  - GET/POST /vault         the account's data key, locked with the Last.fm session (we can't open it)
+ *  - GET/POST /vault         the account's data key, for its own signed-in devices
  *  - POST /sync              push local changes, pull remote changes (wrappeds, images, settings)
 
  * Privacy: synced wrappeds, pictures and settings are encrypted in the browser before upload
- * ("e1:" values, picture names hashed to "h:" keys). The key that opens them is stored here only
- * locked with the user's Last.fm session key, which this server passes to the browser at sign-in
- * and never stores or logs. So the database holds usernames and unreadable data, nothing else.
+ * ("e1:" values, picture names hashed to "h:" keys). Each account's key is stored locked with
+ * VAULT_KEY, a Worker secret kept outside the database. So the database on its own holds
+ * usernames and unreadable data; only this server, for that account's own signed-in devices,
+ * unlocks the key.
  *  - POST /account/delete   delete everything stored for the signed-in account
  *  - POST /logout
  *  - GET  /art?type=&q=      artwork search (Deezer), so the app never runs third-party code
@@ -30,6 +31,8 @@ export interface Env {
   ALLOWED_ORIGINS: string;
   /** Last.fm usernames (lowercase, comma separated) that can see the owner stats and whose data key is kept readable for the owner */
   OWNERS?: string;
+  /** Worker secret (base64, 32 bytes): locks every account's data key. Never in the database or this repo. */
+  VAULT_KEY?: string;
 }
 
 const isOwner = (user: string, env: Env) =>
@@ -265,14 +268,9 @@ async function authStart(url: URL, env: Env) {
   const { key, secret } = await getKeys(env);
   if (!key || !secret) return Response.redirect(`${redirect}#auth_error=not_configured`, 302);
   // `pending` lets the app that started sign-in pick the session up itself, even when Last.fm's
-  // approval happens in another browser (e.g. iOS opens home-screen apps' links in a separate view)
+  // approval happens in another browser view (iOS opens home-screen apps' links in one)
   const pending = url.searchParams.get('pending');
   const okPending = !!pending && /^[0-9a-f]{32}$/.test(pending);
-  // the waiting app's public key: the session key is sealed to it so only that app can read it
-  const pk = url.searchParams.get('pk') ?? '';
-  if (okPending && /^[A-Za-z0-9_-]{80,100}$/.test(pk)) {
-    await env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, pk, created) VALUES (?, ?, ?)').bind(pending, pk, Date.now()).run();
-  }
   const cb = `${url.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}${okPending ? `&pending=${pending}` : ''}`;
   return Response.redirect(`https://www.last.fm/api/auth/?api_key=${key}&cb=${encodeURIComponent(cb)}`, 302);
 }
@@ -292,10 +290,10 @@ async function authCallback(url: URL, env: Env) {
   const sig = md5(`api_key${key}methodauth.getSessiontoken${token}${secret}`);
   const qs = new URLSearchParams({ method: 'auth.getSession', api_key: key, token, api_sig: sig, format: 'json' });
   const r = await fetch(`${LASTFM}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
-  const body = (await r.json().catch(() => ({}))) as { session?: { name: string; key: string }; error?: number; message?: string };
+  // only the username is used: Last.fm's session key is never kept or passed on
+  const body = (await r.json().catch(() => ({}))) as { session?: { name: string }; error?: number; message?: string };
   if (!body.session?.name) return Response.redirect(`${redirect}#auth_error=${encodeURIComponent(body.message ?? 'lastfm_rejected')}`, 302);
   const name = body.session.name;
-  const sk = body.session.key ?? ''; // passed on to the browser, never stored
   const now = Date.now();
   const session = randomToken();
   const pending = url.searchParams.get('pending');
@@ -307,38 +305,10 @@ async function authCallback(url: URL, env: Env) {
     // a second session for the app that's waiting (each device context gets its own token)
     const waiting = randomToken();
     stmts.push(env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(waiting, name.toLowerCase(), now, now));
-    const row = await env.DB.prepare('SELECT pk FROM auth_pending WHERE id = ?').bind(pending).first<{ pk: string }>();
-    const sealed = row?.pk && sk ? await sealTo(row.pk, sk).catch(() => null) : null;
-    stmts.push(
-      env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, pk, token, user, sealed, created) VALUES (?, ?, ?, ?, ?, ?)').bind(pending, row?.pk ?? null, waiting, name, sealed, now),
-    );
+    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, token, user, created) VALUES (?, ?, ?, ?)').bind(pending, waiting, name, now));
   }
   await env.DB.batch(stmts);
-  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}${sk ? `&k=${encodeURIComponent(sk)}` : ''}`, 302);
-}
-
-const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const unb64u = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-
-/**
- * Encrypt a secret so only the holder of `pkB64` (a P-256 public key the app made) can read it:
- * ECDH with a throwaway key, SHA-256 of the shared secret as an AES-GCM key.
- * Output: throwaway public key (65 bytes) | iv (12) | ciphertext.
- */
-async function sealTo(pkB64: string, secret: string) {
-  const their = await crypto.subtle.importKey('raw', unb64u(pkB64), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
-  const mine = (await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])) as CryptoKeyPair;
-  // (the Workers type definitions spell this field $public; the runtime takes the standard name)
-  const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: their } as unknown as SubtleCryptoDeriveKeyAlgorithm, mine.privateKey, 256);
-  const aes = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', bits), 'AES-GCM', false, ['encrypt']);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(secret)));
-  const pub = new Uint8Array((await crypto.subtle.exportKey('raw', mine.publicKey)) as ArrayBuffer);
-  const out = new Uint8Array(pub.length + iv.length + ct.length);
-  out.set(pub, 0);
-  out.set(iv, pub.length);
-  out.set(ct, pub.length + iv.length);
-  return b64u(out);
+  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}`, 302);
 }
 
 /** The app polls this with the random id it started sign-in with; one-time pickup, 15 min window. */
@@ -346,18 +316,11 @@ async function authPoll(url: URL, env: Env) {
   const id = url.searchParams.get('id') ?? '';
   if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
   const old = Date.now() - 15 * 60_000;
-  const row = await env.DB.prepare('SELECT token, user, sealed, created FROM auth_pending WHERE id = ? AND token IS NOT NULL').bind(id).first<{ token: string; user: string; sealed: string | null; created: number }>();
-  if (row) {
-    await env.DB.prepare('DELETE FROM auth_pending WHERE id = ? OR created < ?').bind(id, old).run();
-    if (row.created < old) return json({ pending: true });
-    return json({ token: row.token, user: row.user, sealed: row.sealed ?? undefined });
-  }
-  // sign-ins started by an older version of the app
-  const legacy = await env.DB.prepare('SELECT token, user, created FROM pending_auth WHERE id = ?').bind(id).first<{ token: string; user: string; created: number }>();
-  if (!legacy) return json({ pending: true });
-  await env.DB.prepare('DELETE FROM pending_auth WHERE id = ? OR created < ?').bind(id, old).run();
-  if (legacy.created < old) return json({ pending: true });
-  return json({ token: legacy.token, user: legacy.user });
+  const row = await env.DB.prepare('SELECT token, user, created FROM auth_pending WHERE id = ? AND token IS NOT NULL').bind(id).first<{ token: string; user: string; created: number }>();
+  if (!row) return json({ pending: true });
+  await env.DB.prepare('DELETE FROM auth_pending WHERE id = ? OR created < ?').bind(id, old).run();
+  if (row.created < old) return json({ pending: true });
+  return json({ token: row.token, user: row.user });
 }
 
 /* ---------------- picture store ---------------- */
@@ -466,54 +429,70 @@ async function adminNotes(req: Request, env: Env) {
   return json({ notes: rows.results });
 }
 
-/* ---------------- vault: the account's data key, locked ---------------- */
+/* ---------------- vault: each account's data key ---------------- */
+
+const hexOf = (b: ArrayBuffer | Uint8Array) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+const fromB64 = (v: string) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+const toB64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+
+async function vaultLock(env: Env) {
+  if (!env.VAULT_KEY) throw new Error('VAULT_KEY is not set');
+  return crypto.subtle.importKey('raw', fromB64(env.VAULT_KEY), 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+async function lockKey(env: Env, raw: Uint8Array) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await vaultLock(env), raw));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv);
+  out.set(ct, 12);
+  return toB64(out);
+}
+async function unlockKey(env: Env, locked: string) {
+  const b = fromB64(locked);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, await vaultLock(env), b.subarray(12)));
+}
 
 /**
- * GET: the locked key (or null). POST { wrapped, kid, mode }:
- *  - 'create': first device. Stores the key and wipes the user's older unencrypted sync data
- *    (that device has already downloaded it, and re-uploads it encrypted).
- *  - 'replace': re-lock the same key (same kid) with a new Last.fm session.
+ * The account's data key (synced data is encrypted with it in the browser). It's stored locked
+ * with VAULT_KEY, a Worker secret kept outside the database, and handed only to the account's
+ * own signed-in devices. GET: { key, kid }, or { key: null } if the account has none yet.
+ * POST { mode: 'create' }: make one. The first time, older unencrypted copies are wiped (the
+ * device has downloaded them first and re-uploads them encrypted).
  */
 async function vault(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  // (the owner escrow column is never sent back)
-  const get = () => env.DB.prepare('SELECT wrapped, kid, updated FROM vault WHERE user = ?').bind(user).first<{ wrapped: string; kid: string; updated: number }>();
-  if (req.method === 'GET') return json({ vault: (await get()) ?? null });
+  const owner = isOwner(user, env);
+  const row = await env.DB.prepare('SELECT kid, skey, escrow FROM vault WHERE user = ?').bind(user).first<{ kid: string; skey: string | null; escrow: string | null }>();
+  let raw: Uint8Array | null = null;
+  if (row?.skey) raw = await unlockKey(env, row.skey);
+  else if (row?.escrow) {
+    // from the earlier design (locked with a Last.fm session key): moved over using the owner's copy
+    raw = fromB64(row.escrow);
+    await env.DB.prepare('UPDATE vault SET skey = ?, updated = ? WHERE user = ?').bind(await lockKey(env, raw), Date.now(), user).run();
+  }
+  if (raw && row) {
+    if (owner && !row.escrow) await env.DB.prepare('UPDATE vault SET escrow = ? WHERE user = ?').bind(toB64(raw), user).run();
+    return json({ key: toB64(raw), kid: row.kid });
+  }
+  if (req.method === 'GET') return json({ key: null });
   if (req.method !== 'POST') return json({ error: 'GET or POST' }, 405);
-  const body = (await req.json()) as { wrapped?: string; kid?: string; mode?: string };
-  if (body.mode !== 'escrow' && (typeof body.wrapped !== 'string' || body.wrapped.length > 400)) return json({ error: 'bad vault' }, 400);
-  if (typeof body.kid !== 'string' || !/^[0-9a-f]{32}$/.test(body.kid)) return json({ error: 'bad vault' }, 400);
-  if (body.mode === 'escrow' && typeof (body as { key?: string }).key !== 'string') return json({ error: 'bad vault' }, 400);
+  const body = (await req.json().catch(() => ({}))) as { mode?: string };
+  if (body.mode !== 'create') return json({ error: 'bad mode' }, 400);
+  const fresh = crypto.getRandomValues(new Uint8Array(32));
+  const kid = hexOf(await crypto.subtle.digest('SHA-256', fresh)).slice(0, 32);
   const now = Date.now();
-  if (body.mode === 'create') {
-    const existing = await get();
-    if (existing) return json({ vault: existing, created: false });
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO vault (user, wrapped, kid, updated) VALUES (?, ?, ?, ?)').bind(user, body.wrapped, body.kid, now),
-      env.DB.prepare('DELETE FROM projects WHERE user = ?').bind(user),
-      env.DB.prepare('DELETE FROM images WHERE user = ?').bind(user),
-      env.DB.prepare('DELETE FROM settings WHERE user = ?').bind(user),
-      env.DB.prepare('DELETE FROM chunks WHERE user = ?').bind(user),
-    ]);
-    return json({ vault: await get(), created: true });
-  }
-  if (body.mode === 'escrow') {
-    // owners only: keep the data key readable here so the owner (and their tools) can read their own data
-    if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
-    const key = (body as { key?: string }).key ?? '';
-    const raw = Uint8Array.from(atob(key), (c) => c.charCodeAt(0));
-    const kid = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
-    if (raw.length !== 32 || kid !== body.kid) return json({ error: 'key mismatch' }, 409);
-    const r = await env.DB.prepare('UPDATE vault SET escrow = ? WHERE user = ? AND kid = ?').bind(key, user, kid).run();
-    return r.meta.changes ? json({ ok: true }) : json({ error: 'key mismatch' }, 409);
-  }
-  if (body.mode === 'replace') {
-    const r = await env.DB.prepare('UPDATE vault SET wrapped = ?, updated = ? WHERE user = ? AND kid = ?').bind(body.wrapped, now, user, body.kid).run();
-    if (!r.meta.changes) return json({ error: 'key mismatch' }, 409);
-    return json({ vault: await get() });
-  }
-  return json({ error: 'bad mode' }, 400);
+  await env.DB.batch([
+    // (a vault from the earlier design that can't be opened is replaced)
+    env.DB.prepare('DELETE FROM vault WHERE user = ?').bind(user),
+    env.DB.prepare('INSERT INTO vault (user, wrapped, kid, updated, escrow, skey) VALUES (?, ?, ?, ?, ?, ?)').bind(user, '', kid, now, owner ? toB64(fresh) : null, await lockKey(env, fresh)),
+    env.DB.prepare('DELETE FROM projects WHERE user = ?').bind(user),
+    env.DB.prepare('DELETE FROM images WHERE user = ?').bind(user),
+    env.DB.prepare('DELETE FROM settings WHERE user = ?').bind(user),
+    env.DB.prepare('DELETE FROM chunks WHERE user = ?').bind(user),
+    env.DB.prepare('DELETE FROM blobs WHERE user = ?').bind(user),
+  ]);
+  return json({ key: toB64(fresh), kid, created: true });
 }
 
 const SESSION_IDLE = 180 * 86400_000; // a device unused for 6 months has to sign in again

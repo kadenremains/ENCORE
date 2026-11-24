@@ -11,7 +11,7 @@ Your downloaded Last.fm history, every stat, your wrappeds, custom pictures and 
 **If you sign in with Last.fm** (to sync between devices):
 
 - Your Last.fm username, when you first signed in and when you last used Encore, and a sign-in token per device. Devices unused for 6 months are signed out.
-- Your synced wrappeds, custom pictures and settings, **encrypted on your device before upload**. The server can't read them. The key that opens them is stored only locked with your Last.fm sign-in, which the server passes to your browser and doesn't keep.
+- Your synced wrappeds, custom pictures and settings, **encrypted on your device before upload**. The database holds only scrambled data. Your account's key is stored locked with a server secret that's kept outside the database, and the server hands it only to your own signed-in devices. So someone reading the database (including us) can't read your data. It isn't end-to-end: the server itself can unlock the key, which is what lets a new device sign in and just work.
 - How much space your synced data takes (it's encrypted; only the size is known).
 
 **If you don't sign in**, requests to Last.fm go through Encore's server so you don't need an API key. They're passed on and not kept, except a list of the Last.fm usernames that were looked up, with the first and last time and a count. Use your own API key (**Settings → Account**) and your requests go straight to Last.fm instead.
@@ -20,7 +20,7 @@ Your downloaded Last.fm history, every stat, your wrappeds, custom pictures and 
 
 **Logs:** the server writes a short line per sync (username and item counts) and errors. Per-request logs, which would include what's being looked up, are switched off.
 
-**One exception:** the site owner's own account keeps a readable copy of its own key, so the owner can read their own synced data. No other account does this; which accounts are owners is public in `worker/wrangler.toml`.
+**One exception:** the site owner's own account also keeps a readable copy of its own key in the database, so the owner can read their own synced data with their tools. No other account does this; which accounts are owners is public in `worker/wrangler.toml`.
 
 ## Other services
 

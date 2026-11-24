@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS settings (user TEXT PRIMARY KEY, data TEXT, updated I
 CREATE TABLE IF NOT EXISTS config (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS pending_auth (id TEXT PRIMARY KEY, token TEXT NOT NULL, user TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS chunks (user TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (user, kind, key, seq));
-CREATE TABLE IF NOT EXISTS vault (user TEXT PRIMARY KEY, wrapped TEXT NOT NULL, kid TEXT NOT NULL, updated INTEGER NOT NULL, escrow TEXT);
+CREATE TABLE IF NOT EXISTS vault (user TEXT PRIMARY KEY, wrapped TEXT NOT NULL, kid TEXT NOT NULL, updated INTEGER NOT NULL, escrow TEXT, skey TEXT);
 CREATE TABLE IF NOT EXISTS auth_pending (id TEXT PRIMARY KEY, pk TEXT, token TEXT, user TEXT, sealed TEXT, created INTEGER NOT NULL);
 -- picture store: encrypted pictures, once per account; rows point at them with refs (JSON list)
 CREATE TABLE IF NOT EXISTS blobs (user TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, data BLOB NOT NULL, size INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user, id, seq));
