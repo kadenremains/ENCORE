@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../store';
 import { routePath, type Route } from '../router';
 import { Logo } from '../ui/Logo';
@@ -7,7 +7,7 @@ import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import { dayToDate } from '../lib/library';
 import type { CompareMode } from '../lib/range';
-import { cancelSignIn, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, pollPending, syncNow, useCloud } from '../lib/cloud';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -35,7 +35,21 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
   const { label, stats } = useRangeStats();
   const gaps = stats.gaps();
   const gapDaysTotal = gaps.reduce((n, g) => n + g.end - g.start + 1, 0);
-  const [menu, setMenu] = useState(false);
+  // the menu remembers which page it was opened on, so changing page closes it
+  const routeKey = JSON.stringify(route);
+  const [menuOn, setMenuOn] = useState<string | null>(null);
+  const menu = menuOn === routeKey;
+  const setMenu = (open: boolean) => setMenuOn(open ? routeKey : null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // close the menu on a tap outside it, and when the page changes
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOn(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menu]);
   const cloud = useCloud();
   const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' || cloud.error ? 'err' : cloud.dirty ? 'dirty' : 'ok') : '';
   const [hideErr, setHideErr] = useState<string | null>(null);
@@ -50,7 +64,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           </a>
           <div className="row gap">
             <SyncPill />
-            <div className="user-menu">
+            <div className="user-menu" ref={menuRef}>
               <button className="user-btn" onClick={() => setMenu(!menu)}>
                 {user?.image ? <img src={user.image} alt="" /> : <span className="avatar">{(user?.name ?? username ?? '?')[0]?.toUpperCase()}</span>}
                 {dot && <span className={`cloud-dot ${dot}`} title={cloud.status === 'error' ? (cloud.error ?? 'Sync error') : 'Synced'} />}
@@ -72,47 +86,17 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
                       )}
                     </div>
                   ) : null}
-                  {cloud.token ? (
-                    <>
-                      <button onClick={() => void syncNow()}>Sync now</button>
-                      <button onClick={() => void forceFullSync()} title="Uploads every wrapped and picture on this device again">
-                        Upload everything again
-                      </button>
-                    </>
-                  ) : (
-                    cloud.available?.signIn && !cloud.waiting && <button onClick={startSignIn}>Sign in to sync devices</button>
-                  )}
-                  {cloud.waiting && !cloud.token && (
-                    <>
-                      <div className="menu-section">
-                        <span className="cloud-dot busy" />
-                        Waiting for you to approve on Last.fm…
-                      </div>
-                      <button onClick={() => void pollPending()}>I approved it, check now</button>
-                      <button onClick={cancelSignIn}>Cancel sign-in</button>
-                    </>
-                  )}
+                  {cloud.token && <button onClick={() => void syncNow()}>Sync now</button>}
                   {!demo && <button onClick={() => void useApp.getState().checkEdits(true)}>Check for Last.fm edits</button>}
-                  <a href="#/images">Manage images</a>
                   {user?.url && !demo && (
                     <a href={user.url} target="_blank" rel="noreferrer">
                       Open Last.fm profile ↗
                     </a>
                   )}
-                  {demo ? (
-                    <button onClick={() => disconnect()}>Connect my Last.fm</button>
-                  ) : (
-                    <>
-                      {cloud.token && <button onClick={() => void signOut()}>Turn off sync on this device</button>}
-                      <button
-                        onClick={() => {
-                          if (confirm('Disconnect and delete the downloaded history from this browser? (Your wrappeds and images stay.)')) disconnect();
-                        }}
-                      >
-                        Disconnect
-                      </button>
-                    </>
-                  )}
+                  {demo && <button onClick={() => disconnect()}>Connect my Last.fm</button>}
+                  <a href={routePath({ name: 'settings', tab: 'account' })} className="menu-settings">
+                    Settings
+                  </a>
                 </div>
               )}
             </div>
@@ -166,16 +150,17 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
             <span className="eyebrow">Showing</span>
             <strong>{label}</strong>
             {gaps.length > 0 && (
-              <span
+              <a
                 className="gap-note"
+                href={routePath({ name: 'settings', tab: 'stats' })}
                 title={gaps.map((g) => `${dayToDate(g.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${dayToDate(g.end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`).join('\n')}
               >
                 skipping {gaps.length} break{gaps.length > 1 ? 's' : ''} · {gapDaysTotal} days
-              </span>
+              </a>
             )}
           </div>
           <div className="rangebar-controls">
-            <RangePicker value={exploreRange} onChange={setExploreRange} />
+            <RangePicker value={exploreRange} onChange={setExploreRange} gaps={false} />
             <select className="select compare-select" value={compare} onChange={(e) => setCompare(e.target.value as CompareMode)} title="Compare against">
               <option value="previous">vs previous period</option>
               <option value="lastYear">vs same time last year</option>

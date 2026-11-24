@@ -24,8 +24,8 @@ import { ColorInput, Field, RangePicker, Section, Segmented, Select, Slider, Tex
 import { blockRange, imageBlockEntity, TOKENS, defaultStatLabel, type RenderCtx } from '../render/blocks';
 import { slideTheme, backgroundCss, bgPlacement, useBackgroundSrc } from '../render/SlideCanvas';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
+import { MyPictureControls } from '../ui/MyPicture';
 import { EntityImg } from '../render/primitives';
-import { ACCOUNT_BG_KEY, getOverride, removeOverride, setOverride, useImagesVersion } from '../lib/images';
 import type { EntityKind } from '../lib/types';
 
 const ENTITY_OPTS: { value: EntityKind; label: string }[] = [
@@ -931,29 +931,6 @@ function ProjectInspector({ project }: { project: Project }) {
 }
 
 /** Upload / replace / remove the account-wide background picture. */
-function MyPictureControls() {
-  useImagesVersion();
-  const mine = getOverride(ACCOUNT_BG_KEY);
-  return (
-    <div className="my-picture">
-      {mine && <img src={mine.src} alt="" className="my-picture-thumb" />}
-      <div>
-        <div className="row gap wrap">
-          <UploadButton className="btn" onImage={(src) => void setOverride({ key: ACCOUNT_BG_KEY, src, zoom: 1, x: 50, y: 50 })}>
-            {mine ? 'Replace my picture' : 'Upload my picture'}
-          </UploadButton>
-          {mine && (
-            <button className="btn danger" onClick={() => void removeOverride(ACCOUNT_BG_KEY)}>
-              Remove
-            </button>
-          )}
-        </div>
-        <p className="muted small">Saved to your account and synced to your devices. Every wrapped using “My picture” updates when you replace it.</p>
-      </div>
-    </div>
-  );
-}
-
 /** Drag-to-frame preview for the background picture, in the slide's real proportions. */
 function BgFramer({ project, theme, onChange }: { project: Project; theme: Theme; onChange: (patch: Partial<Theme>, merge?: string) => void }) {
   const lib = useApp((st) => st.lib)!;

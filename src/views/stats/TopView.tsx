@@ -7,7 +7,8 @@ import { routePath } from '../../router';
 import type { EntityKind } from '../../lib/types';
 import type { Ranked } from '../../lib/library';
 import { EmptyRange } from './Overview';
-import { SinglesSection } from './Singles';
+import { SinglesLink } from './Singles';
+import { getPrefs } from '../../lib/prefs';
 
 type Sort = 'plays' | 'climbing' | 'falling' | 'new' | 'recent';
 
@@ -15,7 +16,7 @@ export function TopView({ kind }: { kind: EntityKind }) {
   const { stats, prev, label, cmpLabel, lib } = useRangeStats();
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('plays');
-  const [limit, setLimit] = useState(100);
+  const [limit, setLimit] = useState(() => getPrefs().listLength);
   const L = KIND_LABEL[kind];
 
   const { rows, rankOf } = useMemo(() => {
@@ -98,7 +99,7 @@ export function TopView({ kind }: { kind: EntityKind }) {
           Show more · {fmtNum(rows.length - limit)} left
         </button>
       )}
-      {kind === 'album' && <SinglesSection />}
+      {kind === 'album' && <SinglesLink />}
     </div>
   );
 }

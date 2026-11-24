@@ -119,7 +119,8 @@ export function TextInput({ value, onChange, placeholder, multiline }: { value: 
   );
 }
 
-export function RangePicker({ value, onChange, compact }: { value: RangeSpec; onChange: (r: RangeSpec) => void; compact?: boolean }) {
+/** `gaps`: show the skip-breaks choice (the stats pages keep it in Settings instead). */
+export function RangePicker({ value, onChange, compact, gaps = true }: { value: RangeSpec; onChange: (r: RangeSpec) => void; compact?: boolean; gaps?: boolean }) {
   // nothing before your first scrobble (or after today) can be picked
   const firstTs = useApp((st) => (st.lib?.n ? st.lib.ts[0] : null));
   const today = toISODate(new Date());
@@ -173,6 +174,7 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
           <input type="date" min={start} max={today} value={end} onChange={(e) => e.target.value && onChange({ ...value, preset: 'custom', start, end: clamp(e.target.value) })} />
         </div>
       )}
+      {gaps && (
       <select
         className={`select gap-select ${value.gapDays ? 'on' : ''}`}
         value={value.gapDays ?? 0}
@@ -191,6 +193,7 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
           </option>
         ))}
       </select>
+      )}
     </div>
   );
 }

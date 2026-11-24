@@ -13,7 +13,10 @@ export type Route =
   | { name: 'records' }
   | { name: 'create' }
   | { name: 'edit'; id: string }
-  | { name: 'images' };
+  | { name: 'settings'; tab: SettingsTab };
+
+export const SETTINGS_TABS = ['account', 'stats', 'albums', 'images', 'appearance', 'data', 'about'] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const enc = encodeURIComponent;
 const dec = (s: string) => {
@@ -50,8 +53,10 @@ export function parseRoute(hash: string): Route {
     case 'edit':
       if (b) return { name: 'edit', id: b };
       break;
-    case 'images':
-      return { name: 'images' };
+    case 'images': // old link to the Images page
+      return { name: 'settings', tab: 'images' };
+    case 'settings':
+      return { name: 'settings', tab: (SETTINGS_TABS as readonly string[]).includes(b) ? (b as SettingsTab) : 'account' };
   }
   return { name: 'overview' };
 }
@@ -72,8 +77,8 @@ export function routePath(r: Route): string {
       return '#/create';
     case 'edit':
       return `#/edit/${r.id}`;
-    case 'images':
-      return '#/images';
+    case 'settings':
+      return r.tab === 'account' ? '#/settings' : `#/settings/${r.tab}`;
   }
 }
 

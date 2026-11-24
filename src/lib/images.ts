@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { db, entityKey, type ImageOverride } from './db';
 import type { EntityKind } from './types';
 import { clearTombstone, localChanged, markDeleted } from './changes';
+import { getPrefs } from './prefs';
 
 /* ---------------- in-memory state + subscriptions ---------------- */
 
@@ -109,7 +110,9 @@ function jsonp<T>(url: string, timeout = 8000): Promise<T> {
     const script = document.createElement('script');
     const w = window as unknown as Record<string, unknown>;
     const cleanup = () => {
-      delete w[cb];
+      // a reply that arrives after we gave up still calls the callback: leave a no-op for it
+      w[cb] = () => {};
+      setTimeout(() => delete w[cb], 120_000);
       script.remove();
       clearTimeout(timer);
     };
@@ -222,6 +225,7 @@ function schedule<T>(fn: () => Promise<T>): Promise<T> {
 export function lookupImage(kind: EntityKind, name: string, artist: string): Promise<string> {
   const key = entityKey(kind, name, artist);
   if (resolved.has(key)) return Promise.resolve(resolved.get(key)!);
+  if (!getPrefs().onlineArt) return Promise.resolve(''); // Settings → Images: don't look pictures up online
   const existing = inflight.get(key);
   if (existing) return existing;
   const p = schedule(async () => {
@@ -313,6 +317,13 @@ export function useEntityImage(kind: EntityKind, name: string, artist: string): 
     if (needsLookup) lookupImage(kind, name, artist).catch(() => {});
   }, [needsLookup, kind, name, artist]);
   return img;
+}
+
+/** Forget every picture looked up online, so they're fetched fresh (custom pictures are kept). */
+export async function clearLookupCache() {
+  resolved.clear();
+  await db.imgcache.clear();
+  emit();
 }
 
 export function useImagesVersion() {

@@ -1,16 +1,17 @@
 import { useRangeStats } from './useRangeStats';
+import { usePrefs } from '../../lib/prefs';
 import { ledgerItems, KIND_LABEL, fmtPct, pct } from './helpers';
 import { BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Panel, WEEKDAYS, fmtDay, fmtHour } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath, routePath } from '../../router';
 import type { EntityKind } from '../../lib/types';
 
-const AVG_MIN = 3.5;
 
 const breakNote = (days?: number) => (days ? ` · after a ${days >= 60 ? `${Math.round(days / 30)}-month` : `${days}-day`} break` : '');
 
 export function Overview() {
   const { stats, prev, label, cmpLabel, lib } = useRangeStats();
+  const AVG_MIN = usePrefs((p) => p.minutesPerScrobble);
   if (!stats.total) return <EmptyRange label={label} />;
   const p = prev;
   const tl = stats.timeline('auto');

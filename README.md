@@ -17,6 +17,20 @@ The date range and comparison mode are shared across every page and remembered. 
 - **Album artists:** albums are credited the way Last.fm groups them (compilations, albums whose songs are by a featured artist).
 - **Last.fm edits:** scrobbles you edit or delete on Last.fm (Pro) are picked up: the last two weeks on every sync, older months a few at a time in the background, or all at once from the menu.
 
+## Settings
+
+Open from the profile menu (top right). Tabs:
+
+- **Account & sync:** your Last.fm profile, sign in to sync devices, use your own API key, disconnect.
+- **Stats:** skip breaks, what changes are compared against, 12/24-hour clock, minutes per scrobble, the page the app opens on, chart length, milestone interval, automatic checks for Last.fm edits.
+- **Albums & singles:** the singles switch with every single listed (and the ones you kept as albums), refresh Last.fm's album grouping, re-check singles.
+- **Images:** online picture lookups on/off, pictures in lists, "My picture", and every custom picture.
+- **Appearance:** palettes (Ink, Black, Midnight, Darkroom, Paper), seven accent colors, text size, film grain, animations.
+- **Data & storage:** what's stored on the device, backup to a file and restore, re-download your history, clear caches.
+- **About:** version and update check, data sources, wrapped editor shortcuts.
+
+Settings sync between devices when you're signed in.
+
 ## Create
 
 - **Any time range:** your whole scrobble history is downloaded once into your browser (IndexedDB), so every stat is computed locally and instantly for any range: a week, a summer, a custom span, or a year compared with the year before.

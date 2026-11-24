@@ -9,6 +9,7 @@ import type { CompareMode } from './lib/range';
 import { consumeAuthRedirect } from './lib/cloud';
 import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
+import { getPrefs } from './lib/prefs';
 
 function loadJSON<T>(k: string, fallback: T): T {
   try {
@@ -69,6 +70,14 @@ interface AppState {
   editCheck: { manual: boolean; running: boolean; done: number; total: number; changed: number } | null;
   /** re-read history from Last.fm and apply edits/deletions; manual = the whole history now */
   checkEdits: (manual?: boolean) => Promise<void>;
+  /** use your own Last.fm API key ('' = go through Encore's server); checks the key first */
+  setApiKey: (key: string) => Promise<void>;
+  /** throw away the downloaded history and download it all again */
+  redownloadHistory: () => Promise<void>;
+  /** ask Last.fm again how it groups your albums (album artists) */
+  refreshAlbumGrouping: () => Promise<void>;
+  /** forget what Last.fm said about one-song albums and ask again */
+  recheckSingles: () => Promise<void>;
 }
 
 function installHints(lib: Library) {
@@ -263,7 +272,7 @@ export const useApp = create<AppState>((set, get) => ({
       if (added > 0 || albumsChanged || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
       set({ sync: { phase: 'done', done: added, total: added } });
       void get().checkSingles();
-      void get().checkEdits();
+      if (getPrefs().autoEditCheck) void get().checkEdits();
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });
     }
@@ -403,6 +412,38 @@ export const useApp = create<AppState>((set, get) => ({
     LS.set('sw.demo', '0');
     set({ username: name, demo: false, user: null, view: 'app', lib: await loadLibraryFromDb() });
     await get().runSync();
+  },
+
+  setApiKey: async (key) => {
+    const k = key.trim();
+    if (k && !/^[0-9a-f]{32}$/i.test(k)) throw new Error('A Last.fm API key is 32 characters of letters a–f and numbers.');
+    const { username, demo } = get();
+    if (k && username && !demo) await fetchUserInfo(username, k); // throws if Last.fm refuses the key
+    LS.set('sw.apiKey', k);
+    set({ apiKey: k });
+  },
+
+  redownloadHistory: async () => {
+    const { demo, username } = get();
+    if (demo || !username) return;
+    await db.scrobbles.clear();
+    for (const k of ['syncPending', 'lastSync', 'editCursor', 'editPassAt']) await db.meta.delete(k);
+    set({ lib: await loadLibraryFromDb(), sync: null, syncError: null });
+    await get().runSync();
+  },
+
+  refreshAlbumGrouping: async () => {
+    const { username, apiKey, demo } = get();
+    if (demo || !username) return;
+    await setMeta('albumArtists', await fetchAlbumArtists(username, apiKey));
+    await setMeta('albumArtistsAt', Date.now());
+    await get().reloadLibrary();
+  },
+
+  recheckSingles: async () => {
+    await setMeta('albumTrackCounts', {});
+    await get().reloadLibrary();
+    await get().checkSingles();
   },
 
   disconnect: async () => {

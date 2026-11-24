@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { bumpSettings } from '../../lib/changes';
 import { useApp } from '../../store';
 import { getStats, milestones, type MilestoneStep } from '../../lib/library';
+import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../../lib/milestonePrefs';
 import { Panel, fmtDate, fmtDay } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath } from '../../router';
@@ -140,42 +140,15 @@ function Rec({ label, value, sub, href }: { label: string; value: string; sub?: 
   );
 }
 
-const LS_KEY = 'sw.milestones';
-const STEP_OPTIONS: { value: string; label: string }[] = [
-  { value: 'classic', label: 'Classic (1, 100, 1K, 5K, 10K…)' },
-  { value: '100', label: 'Every 100' },
-  { value: '500', label: 'Every 500' },
-  { value: '1000', label: 'Every 1,000' },
-  { value: '5000', label: 'Every 5,000' },
-  { value: '10000', label: 'Every 10,000' },
-  { value: '25000', label: 'Every 25,000' },
-  { value: '50000', label: 'Every 50,000' },
-  { value: '100000', label: 'Every 100,000' },
-  { value: 'custom', label: 'Custom interval…' },
-];
-
-function loadPrefs(): { step: string; custom: number; artist: string; order: 'newest' | 'oldest' } {
-  try {
-    return { step: 'classic', custom: 2000, artist: '', order: 'newest', ...JSON.parse(localStorage.getItem(LS_KEY) || '{}') };
-  } catch {
-    return { step: 'classic', custom: 2000, artist: '', order: 'newest' };
-  }
-}
-
 const shortN = (n: number) => (n >= 1000 && n % 10 === 0 ? `${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}K` : fmtNum(n));
 
 function Milestones() {
   const lib = useApp((s) => s.lib)!;
-  const [prefs, setPrefsState] = useState(loadPrefs);
+  const [prefs, setPrefsState] = useState(loadMilestonePrefs);
   const setPrefs = (p: Partial<typeof prefs>) => {
     const next = { ...prefs, ...p };
     setPrefsState(next);
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(next));
-    } catch {
-      /* private mode */
-    }
-    bumpSettings();
+    saveMilestonePrefs(next);
   };
   const topArtists = useMemo(() => getStats(lib, { from: 0, to: Infinity }).ranking('artist').slice(0, 100), [lib]);
   const artistIdx = prefs.artist ? (lib.keys.artist.get(prefs.artist.toLowerCase()) ?? -1) : -1;

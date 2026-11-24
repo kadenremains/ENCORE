@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { useApp, type AlbumPrefs } from './store';
+import { useApp } from './store';
 import { useRoute } from './router';
 import { Onboard } from './views/Onboard';
 import { Editor } from './views/Editor';
-import { Images } from './views/Images';
+import { Settings } from './views/Settings';
 import { Shell } from './views/Shell';
 import { Overview } from './views/stats/Overview';
 import { TopView } from './views/stats/TopView';
@@ -15,35 +15,15 @@ import { FirstSync } from './views/FirstSync';
 import { initCloud, setOnSignedIn } from './lib/cloud';
 import { runMaintenance } from './lib/maintenance';
 import { useEditor } from './editor/editorStore';
-import type { CompareMode } from './lib/range';
-import type { RangeSpec } from './lib/types';
+import { usePrefs } from './lib/prefs';
+import { applyAppSettings, getAppSettings } from './lib/appSettings';
 import { applyUpdate, startUpdateChecks, useUpdate } from './lib/updates';
 
 function startCloud() {
   setOnSignedIn((name) => void useApp.getState().adoptUser(name));
   initCloud({
-    getSettings: () => {
-      const { exploreRange, compare } = useApp.getState();
-      let milestones: unknown = null;
-      try {
-        milestones = JSON.parse(localStorage.getItem('sw.milestones') || 'null');
-      } catch {
-        /* ignore */
-      }
-      return { range: exploreRange, compare, milestones, albums: useApp.getState().albumPrefs };
-    },
-    applySettings: (raw) => {
-      const d = raw as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown; albums?: AlbumPrefs };
-      try {
-        if (d.range) localStorage.setItem('sw.range', JSON.stringify(d.range));
-        if (d.compare) localStorage.setItem('sw.compare', d.compare);
-        if (d.milestones) localStorage.setItem('sw.milestones', JSON.stringify(d.milestones));
-      } catch {
-        /* private mode */
-      }
-      useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });
-      if (d.albums && JSON.stringify(d.albums) !== JSON.stringify(useApp.getState().albumPrefs)) void useApp.getState().setAlbumPrefs(d.albums, { fromSync: true });
-    },
+    getSettings: getAppSettings,
+    applySettings: applyAppSettings,
     onProjectChanged: (p, id) => {
       const ed = useEditor.getState();
       if (ed.project?.id !== id) return;
@@ -72,6 +52,7 @@ export default function App() {
 }
 
 function Main() {
+  usePrefs(); // settings like the clock style apply everywhere at once
   const view = useApp((s) => s.view);
   const init = useApp((s) => s.init);
   const route = useRoute();
@@ -111,14 +92,14 @@ function Main() {
     case 'create':
       page = <Create />;
       break;
-    case 'images':
-      page = <Images />;
+    case 'settings':
+      page = <Settings tab={route.tab} />;
       break;
     default:
       page = <Overview />;
   }
   return (
-    <Shell route={route} showRange={route.name !== 'records' && route.name !== 'images'}>
+    <Shell route={route} showRange={route.name !== 'records' && route.name !== 'settings'}>
       {page}
     </Shell>
   );

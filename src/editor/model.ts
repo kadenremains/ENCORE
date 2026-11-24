@@ -1,3 +1,4 @@
+import { getPrefs } from '../lib/prefs';
 import type { EntityKind, RangeSpec } from '../lib/types';
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
@@ -635,6 +636,6 @@ export function newProject(templateId = 'vault', range: RangeSpec = { preset: 't
     theme: { ...theme },
     range,
     slides: t.build(format),
-    avgTrackMinutes: 3.5,
+    avgTrackMinutes: getPrefs().minutesPerScrobble,
   };
 }

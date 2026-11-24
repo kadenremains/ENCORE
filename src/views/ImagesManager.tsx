@@ -9,7 +9,8 @@ import { EntityImg, fmtNum } from '../render/primitives';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
 import { RangePicker } from '../ui/controls';
 
-export function Images() {
+/** Settings → Images: browse your top artists/albums/songs (or search everything) and replace any picture. */
+export function ImagesManager() {
   const { lib, exploreRange, setExploreRange } = useApp();
   useImagesVersion();
   const [kind, setKind] = useState<EntityKind>('artist');
@@ -32,16 +33,10 @@ export function Images() {
   } else items = stats.top(kind, 120);
 
   return (
-    <div className="page images-view">
-      <div className="page-head">
-        <div>
-          <div className="eyebrow">Artwork for every artist, album and song</div>
-          <h1 className="page-title">Images</h1>
-        </div>
-      </div>
-      <section className="block">
-        <p className="muted">
-          Pictures come from Last.fm, Apple Music and Deezer automatically. Upload your own for anything missing or wrong, and it's used in every wrapped. <b>{custom.size}</b> custom image{custom.size === 1 ? '' : 's'} so far.
+    <div className="images-view">
+      <section>
+        <p className="muted small">
+          <b>{custom.size}</b> custom picture{custom.size === 1 ? '' : 's'} so far. Tap any picture to replace it; it's used everywhere, including every wrapped.
         </p>
         <div className="row gap wrap images-controls">
           <div className="segmented">

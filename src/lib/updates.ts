@@ -30,6 +30,22 @@ export function applyUpdate(build?: string) {
 }
 
 let checking = false;
+/** Ask the server for the current version; reloads into it when there's a newer one. */
+export async function checkForUpdate(): Promise<'latest' | 'updating' | 'offline' | 'dev'> {
+  const running = runningBuild();
+  if (!running) return 'dev';
+  const latest = await latestBuild();
+  if (!latest) return 'offline';
+  if (latest === running) return 'latest';
+  applyUpdate(latest);
+  return 'updating';
+}
+
+/** The build that's running (shown in Settings → About). */
+export function buildId() {
+  return runningBuild()?.replace(/^index-|\.js$/g, '') ?? 'dev';
+}
+
 async function check() {
   const running = runningBuild();
   if (!running || checking || document.visibilityState !== 'visible') return; // dev server: nothing to compare

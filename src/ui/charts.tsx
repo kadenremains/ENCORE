@@ -1,10 +1,12 @@
+import { fmtHourPref, usePrefs } from '../lib/prefs';
 import { useState, type ReactNode } from 'react';
 import { dayToDate } from '../lib/library';
 import type { EntityKind } from '../lib/types';
 import { EntityImg, fmtNum } from '../render/primitives';
 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-export const fmtHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'a' : 'p'}`;
+/** Hour label in the clock style picked in Settings (3p or 15:00). */
+export const fmtHour = (h: number) => fmtHourPref(h);
 export const fmtDate = (ts: number, opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }) => new Date(ts * 1000).toLocaleDateString(undefined, opts);
 export const fmtDay = (d: number, opts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) => dayToDate(d).toLocaleDateString(undefined, opts);
 
@@ -70,11 +72,12 @@ export interface LedgerItem {
 }
 
 export function Ledger({ items, compact, empty = 'Nothing here for this range.' }: { items: LedgerItem[]; compact?: boolean; empty?: string }) {
+  const listImages = usePrefs((p) => p.listImages);
   if (!items.length) return <p className="empty">{empty}</p>;
   return (
     <ol className={`ledger ${compact ? 'compact' : ''}`}>
       {items.map((it) => {
-        const showImage = it.showImage !== false;
+        const showImage = it.showImage !== false && listImages;
         const inner = (
           <>
             <span className="ledger-rk">{it.rank ?? ''}</span>
