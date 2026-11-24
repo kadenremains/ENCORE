@@ -9,7 +9,7 @@ import { EntityView } from './views/stats/EntityView';
 import { Listening } from './views/stats/Listening';
 import { Records } from './views/stats/Records';
 import { FirstSync } from './views/FirstSync';
-import { initCloud, setOnSignedIn, useCloud } from './lib/cloud';
+import { initCloud, setOnSignedIn, setOnSignedOut, useCloud } from './lib/cloud';
 import { lookAccountChecked, useLook } from './lib/look';
 import { LookPicker } from './views/LookPicker';
 import { runMaintenance } from './lib/maintenance';
@@ -30,6 +30,7 @@ const loading = (
 
 function startCloud() {
   setOnSignedIn((name) => void useApp.getState().adoptUser(name));
+  setOnSignedOut((why) => useApp.getState().signedOut(why));
   initCloud({
     getSettings: getAppSettings,
     applySettings: applyAppSettings,

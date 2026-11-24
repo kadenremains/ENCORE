@@ -49,6 +49,10 @@ interface AppState {
   sync: SyncProgress | null;
   syncError: string | null;
   authError: string | null;
+  /** why we're on the start screen (e.g. signed out) */
+  notice: string | null;
+  /** signed out of sync: back to the start screen until they sign in or choose to continue without */
+  signedOut: (why: string) => void;
   exploreRange: RangeSpec;
   compare: CompareMode;
   setView: (v: View) => void;
@@ -172,6 +176,11 @@ function withHistory<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+function clearSignedOut(set: (s: Partial<AppState>) => void) {
+  LS.set('sw.signedOut', '');
+  set({ notice: null });
+}
+
 let checkingSingles = false;
 let checkingEdits = false;
 let manualEditQueued = false;
@@ -186,10 +195,16 @@ export const useApp = create<AppState>((set, get) => ({
   sync: null,
   syncError: null,
   authError: null,
+  notice: LS.get('sw.signedOut') || null,
   exploreRange: loadJSON<RangeSpec>('sw.range', { preset: 'this-year' }),
   compare: (LS.get('sw.compare') as CompareMode) || 'previous',
 
   setView: (view) => set({ view }),
+
+  signedOut: (why) => {
+    LS.set('sw.signedOut', why);
+    set({ view: 'onboard', notice: why });
+  },
   setExploreRange: (exploreRange) => {
     LS.set('sw.range', JSON.stringify(exploreRange));
     set({ exploreRange });
@@ -219,6 +234,12 @@ export const useApp = create<AppState>((set, get) => ({
       return get().startDemo(); // the demo was closed before it finished saving
     }
     const { username, demo } = get();
+    // signed out of sync earlier and hasn't chosen how to continue: start screen again
+    if (get().notice && !auth?.user) {
+      await loadImageState();
+      return set({ view: 'onboard' });
+    }
+    if (auth?.user) clearSignedOut(set);
     if (!username && !demo) {
       await loadImageState();
       return set({ view: 'onboard' });
@@ -231,6 +252,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   connect: async (username, apiKey) => {
     set({ syncError: null });
+    clearSignedOut(set);
     const user = await fetchUserInfo(username.trim(), apiKey.trim());
     LS.set('sw.username', user.name);
     LS.set('sw.apiKey', apiKey.trim());
@@ -242,6 +264,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   startDemo: async () => {
+    clearSignedOut(set);
     await db.scrobbles.clear();
     await db.meta.clear();
     const rows = generateDemo();
@@ -438,7 +461,12 @@ export const useApp = create<AppState>((set, get) => ({
 
   adoptUser: async (name) => {
     const { username, demo } = get();
-    if (!demo && username && username.toLowerCase() === name.toLowerCase()) return;
+    clearSignedOut(set);
+    // same account signing back in (e.g. from the start screen): straight back into the app
+    if (!demo && username && username.toLowerCase() === name.toLowerCase()) {
+      if (get().view !== 'app') set({ view: 'app', lib: get().lib ?? (await loadLibraryFromDb()) });
+      return;
+    }
     await claimLocalData(name, demo);
     LS.set('sw.username', name);
     LS.set('sw.demo', '0');

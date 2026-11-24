@@ -370,11 +370,7 @@ function adoptSession(token: string, user: string, sessionKey?: string) {
     else {
       dataKey = dataKey ?? (await loadLocalKey(user));
       // no key and no way to unlock one: treat it as signed out, so signing in sets it up
-      if (!dataKey) {
-        await signOut();
-        useCloud.setState({ error: "Sign-in didn't finish. Please try again." });
-        return;
-      }
+      if (!dataKey) return void signOut("Sign-in didn't finish. Please try again.");
       useCloud.setState({ privacy: 'ready' });
     }
     if (dataKey) void syncNow();
@@ -405,10 +401,16 @@ export async function deleteAccountData() {
   const { token } = useCloud.getState();
   if (!token) return;
   await api(token, '/account/delete', {});
-  await signOut();
+  await signOut('Your synced data was deleted from Encore’s server. Sign in again any time to start syncing fresh.');
 }
 
-export async function signOut() {
+let onSignedOut: ((why: string) => void) | null = null;
+/** The app sends anyone who gets signed out back to the start screen (so they sign in again). */
+export function setOnSignedOut(fn: (why: string) => void) {
+  onSignedOut = fn;
+}
+
+export async function signOut(why = "You've been signed out. Sign in again to keep your wrappeds, pictures and settings syncing.") {
   const { token } = useCloud.getState();
   if (token && API_URL) fetch(`${API_URL}/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
   LS.set(K.auth, null);
@@ -421,6 +423,7 @@ export async function signOut() {
   useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false, privacy: null, owner: false });
   // ready for the next sign-in (home-screen apps need this key before Last.fm opens)
   prepareSignIn();
+  if (token) onSignedOut?.(why);
 }
 
 /* ---------------- sync ---------------- */

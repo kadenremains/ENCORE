@@ -200,9 +200,9 @@ function AccountTab() {
             <Row label="Upload everything again" hint="Re-sends every wrapped and picture on this device. Use it if something is missing on another device.">
               <ActionButton run={async () => void (await forceFullSync())}>Upload everything</ActionButton>
             </Row>
-            <Row label="Turn off sync on this device" hint="Nothing is deleted. Your wrappeds stay here and on your account.">
-              <button className="btn" onClick={() => void signOut()}>
-                Turn off sync
+            <Row label="Sign out" hint="Nothing is deleted: your wrappeds stay here and on your account. You’ll go back to the start screen.">
+              <button className="btn" onClick={() => void signOut('Signed out. Sign in again to sync this device.')}>
+                Sign out
               </button>
             </Row>
           </>

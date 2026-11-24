@@ -11,7 +11,7 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 export function Onboard() {
-  const { connect, startDemo, username: savedUser, apiKey: savedKey, authError } = useApp();
+  const { connect, startDemo, username: savedUser, apiKey: savedKey, authError, notice } = useApp();
   const available = useCloud((s) => s.available);
   const waiting = useCloud((s) => s.waiting);
   const [username, setUsername] = useState(savedUser);
@@ -64,6 +64,7 @@ export function Onboard() {
           wrapped your way
         </h1>
         <p className="lead">Any date range. Every stat. Fully custom, shareable graphics.</p>
+        {notice && <p className="onboard-notice">{notice}</p>}
 
         {signIn && (
           <>

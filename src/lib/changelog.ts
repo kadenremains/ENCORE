@@ -12,6 +12,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.4.2',
+    date: '2026-11-24',
+    title: 'Signed out means back to the start',
+    notes: [
+      { text: 'Whenever you’re signed out (by choice, by the server, or after deleting your synced data), you go back to the start screen with a note saying why, until you sign in again or choose to carry on without syncing. Your history stays on the device.' },
+      { text: '“Turn off sync on this device” is now simply “Sign out”.' },
+    ],
+  },
+  {
     version: '2.4.1',
     date: '2026-11-24',
     title: 'Sign-in fix for the home-screen app',
