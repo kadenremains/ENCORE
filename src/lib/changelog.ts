@@ -12,6 +12,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.7',
+    date: '2026-11-24',
+    title: 'Deluxe editions',
+    notes: [
+      { text: 'Settings → Albums & singles → Deluxe editions: Encore compares every deluxe you play with the standard album’s tracklist on Last.fm and lists the songs it added (often singles tacked on months later).' },
+      { text: 'Switch on “Count songs added in deluxe editions on their own” to leave them out of the album’s stats; keep any deluxe with its album if you like.' },
+    ],
+  },
+  {
     version: '2.6.4',
     date: '2026-11-24',
     title: 'Clearer way back after signing in',

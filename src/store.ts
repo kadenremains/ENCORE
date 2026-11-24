@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
-import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
+import { fetchAlbumArtists, fetchAlbumTrackCount, fetchAlbumTracks, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
@@ -11,6 +11,7 @@ import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
 import { getPrefs } from './lib/prefs';
 import { decodeNames, findBatches, type Garbled } from './lib/tidy';
+import { addedTracks, applyDeluxe, deluxeCandidates, type DeluxeCache } from './lib/deluxe';
 import { applyFixes, findMismatches, fineKey, fixesFor, type Fix, type Mismatch } from './lib/mismatches';
 
 function loadJSON<T>(k: string, fallback: T): T {
@@ -83,6 +84,8 @@ interface AppState {
   reloadLibrary: () => Promise<void>;
   /** background: ask Last.fm how many songs one-song albums really have */
   checkSingles: () => Promise<void>;
+  /** background: compare deluxe editions with their standard albums (Last.fm tracklists) */
+  checkDeluxe: () => Promise<void>;
   /** progress of re-checking history for edits made on Last.fm */
   editCheck: { manual: boolean; running: boolean; done: number; total: number; changed: number } | null;
   /** re-read history from Last.fm and apply edits/deletions; manual = the whole history now */
@@ -147,6 +150,10 @@ export interface AlbumPrefs {
   keep: string[];
   fixes?: Fix[];
   fine?: string[];
+  /** count songs a deluxe edition adds (often singles tacked on later) on their own */
+  deluxeApart?: boolean;
+  /** deluxe editions to leave alone anyway */
+  deluxeKeep?: string[];
 }
 
 const isFix = (f: unknown): f is Fix => {
@@ -162,6 +169,8 @@ export function sanitizeAlbumPrefs(v: unknown): AlbumPrefs | null {
     keep: x.keep.filter((k) => typeof k === 'string'),
     fixes: Array.isArray(x.fixes) ? x.fixes.filter(isFix) : [],
     fine: Array.isArray(x.fine) ? x.fine.filter((k) => typeof k === 'string') : [],
+    deluxeApart: x.deluxeApart === true,
+    deluxeKeep: Array.isArray(x.deluxeKeep) ? x.deluxeKeep.filter((k) => typeof k === 'string') : [],
   };
 }
 
@@ -172,7 +181,7 @@ export function loadAlbumPrefs(): AlbumPrefs {
   } catch {
     /* default */
   }
-  return { hideSingles: true, keep: [], fixes: [], fine: [] };
+  return { hideSingles: true, keep: [], fixes: [], fine: [], deluxeApart: false, deluxeKeep: [] };
 }
 
 /**
@@ -198,7 +207,7 @@ let unsavedDemo: StoredScrobble[] | null = null;
 
 async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Library> {
   const inMemory = rowsInMemory ?? (unsavedDemo && useApp.getState().demo ? [...unsavedDemo] : null);
-  const [rows, albumArtists, trackCounts] = await Promise.all([inMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
+  const [rows, albumArtists, trackCounts, deluxeCache] = await Promise.all([inMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts'), getMeta<DeluxeCache>('deluxeTracks')]);
   const prefs = loadAlbumPrefs();
   const counts: Record<string, number> = {};
   for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
@@ -206,10 +215,17 @@ async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Libra
   rows.sort((a, b) => a.ts - b.ts);
   const garbled: Garbled[] = [];
   const { rows: listened, batches } = findBatches(decodeNames(rows, garbled), getPrefs().skipBatches);
-  const fixed = applyFixes(listened, prefs.fixes);
+  const merged = applyFixes(listened, prefs.fixes);
+  // songs a deluxe edition added: on their own, if you chose that
+  const cands = deluxeCandidates(merged);
+  const cache = deluxeCache ?? {};
+  const { rows: fixed, info: deluxe } = applyDeluxe(merged, cands, cache, !!prefs.deluxeApart, new Set(prefs.deluxeKeep));
   const lib = buildLibrary(fixed, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   lib.batches = batches;
   lib.garbled = garbled.reverse(); // newest first
+  lib.deluxe = deluxe;
+  const stale = Date.now() - 30 * 86400_000;
+  lib.deluxePending = cands.filter((c) => !cache[c.key] || (cache[c.key].added === null && cache[c.key].at < stale));
   installHints(lib);
   findMismatchesLater(fixed);
   return lib;
@@ -244,6 +260,7 @@ function clearSignedOut(set: (s: Partial<AppState>) => void) {
 }
 
 let checkingSingles = false;
+let checkingDeluxe = false;
 let checkingEdits = false;
 let manualEditQueued = false;
 
@@ -388,6 +405,7 @@ export const useApp = create<AppState>((set, get) => ({
       if (added > 0 || albumsChanged || !get().lib?.n) set({ lib: await loadLibraryFromDb() });
       set({ sync: { phase: 'done', done: added, total: added } });
       void get().checkSingles();
+      void get().checkDeluxe();
       if (getPrefs().autoEditCheck) void get().checkEdits();
     } catch (e) {
       set({ sync: { phase: 'error', done: 0, total: 0 }, syncError: (e as Error).message });
@@ -555,6 +573,35 @@ export const useApp = create<AppState>((set, get) => ({
       if (todo.length) await get().reloadLibrary();
     } finally {
       checkingSingles = false;
+    }
+  },
+
+  checkDeluxe: async () => {
+    if (checkingDeluxe) return;
+    const { username, apiKey, demo } = get();
+    if (demo || !username || (!apiKey && !API_URL)) return;
+    const todo = get().lib?.deluxePending ?? [];
+    if (!todo.length) return;
+    checkingDeluxe = true;
+    try {
+      const cache: DeluxeCache = (await getMeta<DeluxeCache>('deluxeTracks')) ?? {};
+      let found = 0;
+      for (const c of todo) {
+        try {
+          const [dlx, std] = await Promise.all([fetchAlbumTracks(c.artist, c.album, apiKey), fetchAlbumTracks(c.artist, c.standard, apiKey)]);
+          const added = dlx && std ? addedTracks(dlx, std) : null;
+          cache[c.key] = { added, at: Date.now() };
+          if (added?.length) found++;
+        } catch {
+          continue; // network / rate limit: next time
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      await setMeta('deluxeTracks', cache);
+      // the list in Settings shows what each deluxe adds even with the setting off
+      if (found || get().lib?.deluxePending?.length) await get().reloadLibrary();
+    } finally {
+      checkingDeluxe = false;
     }
   },
 

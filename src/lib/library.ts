@@ -28,6 +28,10 @@ export interface Library {
   batches?: import('./tidy').Batches;
   /** scrobbles whose names came with codes left in (shown decoded; pointed out in Clean up) */
   garbled?: import('./tidy').Garbled[];
+  /** deluxe editions you've played that add songs to the standard album */
+  deluxe?: import('./deluxe').DeluxeInfo[];
+  /** deluxe editions whose tracklists haven't been compared yet */
+  deluxePending?: import('./deluxe').DeluxeCandidate[];
 }
 
 export interface SingleInfo {

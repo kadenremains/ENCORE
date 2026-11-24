@@ -79,6 +79,79 @@ export function Settings({ tab, q }: { tab: SettingsTab; q?: string }) {
   );
 }
 
+/** Settings → Albums & singles: songs a deluxe edition adds (often singles tacked on months later). */
+function DeluxeGroup() {
+  const lib = useApp((s) => s.lib);
+  const prefs = useApp((s) => s.albumPrefs);
+  const setAlbumPrefs = useApp((s) => s.setAlbumPrefs);
+  const checkDeluxe = useApp((s) => s.checkDeluxe);
+  const [limit, setLimit] = useState(10);
+  const list = lib?.deluxe ?? [];
+  const pending = lib?.deluxePending?.length ?? 0;
+  const keep = new Set(prefs.deluxeKeep ?? []);
+  const songs = list.reduce((n, d) => n + d.added.length, 0);
+  const plays = list.reduce((n, d) => n + d.added.reduce((m, x) => m + x.plays, 0), 0);
+  const toggleKeep = (key: string) => {
+    const next = new Set(keep);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    void setAlbumPrefs({ ...prefs, deluxeKeep: [...next] });
+  };
+  return (
+    <Group
+      title="Deluxe editions"
+      desc="Deluxe editions often pad the album with songs released on their own months later. Encore compares each deluxe you've played with the standard album's tracklist on Last.fm to find the songs it added."
+    >
+      <Row
+        label="Count songs added in deluxe editions on their own"
+        hint={
+          list.length
+            ? `${fmtNum(songs)} ${songs === 1 ? 'song' : 'songs'} (${fmtNum(plays)} plays) across ${fmtNum(list.length)} ${list.length === 1 ? 'deluxe' : 'deluxes'}. On: they're left out of that album's stats and count as songs of their own, like singles.`
+            : pending
+              ? 'Comparing your deluxe editions with Last.fm…'
+              : 'None of the deluxe editions you play add songs Last.fm knows about.'
+        }
+      >
+        <Toggle
+          value={!!prefs.deluxeApart}
+          onChange={(v) => {
+            void setAlbumPrefs({ ...prefs, deluxeApart: v });
+            void checkDeluxe();
+          }}
+          label=""
+        />
+      </Row>
+      {pending > 0 && list.length > 0 && <p className="muted small">Comparing {fmtNum(pending)} more with Last.fm…</p>}
+      {list.length > 0 && (
+        <ul className="deluxe-list">
+          {list.slice(0, limit).map((d) => (
+            <li key={d.key}>
+              <div className="deluxe-head">
+                <span>
+                  <b>{d.album}</b> <span className="muted small">· {d.artist}</span>
+                </span>
+                {prefs.deluxeApart && (
+                  <button className="mini-btn" onClick={() => toggleKeep(d.key)} title={keep.has(d.key) ? 'Count its added songs on their own' : 'Count its added songs with the album'}>
+                    {keep.has(d.key) ? 'Count apart' : 'Keep with album'}
+                  </button>
+                )}
+              </div>
+              <div className="muted small">
+                {keep.has(d.key) && prefs.deluxeApart ? 'Kept with the album. ' : ''}Adds to {d.standard}: {d.added.map((x) => `${x.name} (${fmtNum(x.plays)})`).join(', ')}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {list.length > limit && (
+        <button className="more" onClick={() => setLimit(limit + 30)}>
+          Show more · {fmtNum(list.length - limit)} left
+        </button>
+      )}
+    </Group>
+  );
+}
+
 /** Scrobbles on the device, including batch-scrobbled ones left out of stats. */
 const storedCount = (lib: ReturnType<typeof useApp.getState>['lib']) => (lib ? lib.n + (lib.batches?.skipped ? lib.batches.total : 0) : 0);
 
@@ -586,6 +659,7 @@ function AlbumsTab() {
       <Group title="Singles" right={lib ? <span className="muted small">{fmtNum(lib.singles.filter((x) => x.hidden).length)} treated as singles</span> : undefined}>
         <SinglesSettings />
       </Group>
+      {!demo && <DeluxeGroup />}
       {!demo && (
         <Group
           title="Album artists"
