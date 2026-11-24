@@ -2915,6 +2915,22 @@ a.hl:hover {
   .user-btn {
     padding: 4px;
   }
+  /* a long sync status shortens itself instead of pushing the profile button off screen */
+  .shell-head-row > .row {
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+  .shell-head-row .brand,
+  .user-menu {
+    flex: 0 0 auto;
+  }
+  .shell-head-row .pill {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .rangebar {
     padding: 10px 0;
   }
@@ -3297,4 +3313,27 @@ a.hl:hover {
   white-space: nowrap;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   cursor: pointer;
+}
+
+/* entity pages: song / album lists */
+.panel-box.span-all {
+  grid-column: 1 / -1;
+}
+.sublist-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.segmented.mini button {
+  padding: 4px 9px;
+  font-size: 10px;
+}
+.sublist-search {
+  width: 100%;
+  margin-bottom: 10px;
+}
+.sublist-more {
+  margin-top: 12px;
 }

@@ -4,7 +4,7 @@ import { KIND_LABEL, fmtPct, pct } from './helpers';
 import { AreaSpark, BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Move, Panel, WEEKDAYS, fmtDate, fmtDay, fmtHour, type LedgerItem } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath, routePath } from '../../router';
-import { dayToDate, entityAllTime, entityRangeStats, findEntity, getStats, type Ranked } from '../../lib/library';
+import { dayToDate, entityAllTime, entityRangeStats, findEntity, getStats, type Library } from '../../lib/library';
 import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
@@ -54,24 +54,6 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       buckets[lo].value += c;
     }
   }
-
-  const subLedger = (k: EntityKind, rows: Ranked[], total: number): LedgerItem[] => {
-    const max = rows[0]?.count ?? 1;
-    return rows.slice(0, 15).map((r, i) => {
-      const it = stats.item(k, r, i + 1);
-      return {
-        key: `${k}${r.idx}`,
-        rank: i + 1,
-        kind: k,
-        name: it.name,
-        artist: it.artist,
-        meta: `${fmtPct(pct(r.count, total))} of their plays`,
-        value: r.count,
-        frac: r.count / max,
-        href: entityPath(k, it.name, it.artist),
-      };
-    });
-  };
 
   const heatEnd = stats.lastDay;
   const heatStart = Math.max(stats.firstDay, heatEnd - 370);
@@ -138,6 +120,13 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
 
       {kind === 'artist' && <CreditedAlbums artistIdx={idx} name={name} />}
 
+      {kind !== 'track' && (
+        <div className="grid2">
+          <SubList title={kind === 'artist' ? 'Songs' : 'Songs on this album'} itemKind="track" ownerKind={kind} ownerIdx={idx} />
+          {kind === 'artist' && <SubList title="Albums" itemKind="album" ownerKind={kind} ownerIdx={idx} />}
+        </div>
+      )}
+
       {er.plays > 0 && (
         <>
           <Panel title={`In ${label}`}>
@@ -148,21 +137,6 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
           </Panel>
 
           <div className="grid2">
-            {kind === 'artist' && (
-              <Panel title="Top songs" right={<span className="muted small">{fmtNum(er.tracks.length)} songs</span>}>
-                <Ledger compact items={subLedger('track', er.tracks, er.plays)} />
-              </Panel>
-            )}
-            {kind === 'artist' && (
-              <Panel title="Top albums" right={<span className="muted small">{fmtNum(er.albums.length)} albums</span>}>
-                <Ledger compact items={subLedger('album', er.albums, er.plays)} />
-              </Panel>
-            )}
-            {kind === 'album' && (
-              <Panel title="Songs on this album">
-                <Ledger compact items={subLedger('track', er.tracks, er.plays)} />
-              </Panel>
-            )}
             <Panel title="Hour of day">
               <BarChart height={120} data={er.byHour.map((v, h) => ({ label: fmtHour(h), value: v, axis: h % 6 === 0 ? fmtHour(h) : '' }))} />
             </Panel>
@@ -182,6 +156,69 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>
   );
+}
+
+const PREVIEW = 15;
+
+/**
+ * An artist's songs or albums, or an album's songs: the top 15 in the range, expandable to all
+ * of them, and switchable to all time (every song you've ever played by them).
+ */
+function SubList({ title, itemKind, ownerKind, ownerIdx }: { title: string; itemKind: 'track' | 'album'; ownerKind: EntityKind; ownerIdx: number }) {
+  const { lib, stats, label, range } = useRangeStats();
+  const inRange = entityRangeStats(lib, ownerKind, ownerIdx, range);
+  const allTime = entityRangeStats(lib, ownerKind, ownerIdx, { from: 0, to: Infinity });
+  // nothing played in this range: start on all time so the list isn't empty
+  const [scope, setScope] = useState<'range' | 'all'>(inRange.plays ? 'range' : 'all');
+  const [expanded, setExpanded] = useState(false);
+  const [q, setQ] = useState('');
+  const er = scope === 'range' ? inRange : allTime;
+  const rows = itemKind === 'track' ? er.tracks : er.albums;
+  const ranked = rows.map((r, i) => ({ r, rank: i + 1 }));
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? ranked.filter(({ r }) => nameOf(lib, itemKind, r.idx).toLowerCase().includes(needle)) : ranked;
+  const shown = expanded ? filtered : filtered.slice(0, PREVIEW);
+  const max = rows[0]?.count ?? 1;
+  const whose = ownerKind === 'album' ? "of the album's plays" : 'of their plays';
+  const items: LedgerItem[] = shown.map(({ r, rank }) => {
+    const it = stats.item(itemKind, r, rank);
+    return { key: `${itemKind}${r.idx}`, rank, kind: itemKind, name: it.name, artist: it.artist, meta: `${fmtPct(pct(r.count, er.plays))} ${whose}`, value: r.count, frac: r.count / max, href: entityPath(itemKind, it.name, it.artist) };
+  });
+  const noun = itemKind === 'track' ? 'songs' : 'albums';
+  if (!allTime.tracks.length || (itemKind === 'album' && !allTime.albums.length)) return null;
+  return (
+    <Panel
+      className={expanded ? 'span-all' : ''}
+      title={title}
+      right={
+        <span className="sublist-controls">
+          <span className="muted small">
+            {fmtNum(rows.length)} {noun}
+          </span>
+          <span className="segmented mini">
+            <button type="button" className={scope === 'range' ? 'on' : ''} onClick={() => setScope('range')}>
+              {label}
+            </button>
+            <button type="button" className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
+              All time
+            </button>
+          </span>
+        </span>
+      }
+    >
+      {expanded && rows.length > PREVIEW && <input className="text-input sublist-search" placeholder={`Search ${noun}…`} value={q} onChange={(e) => setQ(e.target.value)} />}
+      <Ledger compact items={items} empty={needle ? `No ${noun} match “${q}”.` : `No ${noun} played in ${label}.`} />
+      {filtered.length > PREVIEW && (
+        <button type="button" className="more sublist-more" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show top 15' : `Show all ${fmtNum(filtered.length)} ${noun}`}
+        </button>
+      )}
+    </Panel>
+  );
+}
+
+function nameOf(lib: Library, kind: 'track' | 'album', idx: number) {
+  return kind === 'track' ? lib.tracks[idx].name : lib.albums[idx].name;
 }
 
 /** Albums filed under this artist (as album artist), e.g. compilations or albums sung by others. */
