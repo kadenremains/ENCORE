@@ -421,6 +421,16 @@ textarea.text-input {
 .range-picker .dates span {
   color: var(--muted);
 }
+/* month + year pickers share the row: the month gets the room */
+.range-picker .dates .select {
+  min-width: 0;
+}
+.range-picker .dates .select[aria-label='Month'],
+.range-picker .dates .select[aria-label='Year'] {
+  flex: 1 1 0;
+  padding-left: 10px;
+  padding-right: 24px;
+}
 
 .grid2 {
   display: grid;
@@ -3319,21 +3329,32 @@ a.hl:hover {
 .panel-box.span-all {
   grid-column: 1 / -1;
 }
-.sublist-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.segmented.mini button {
-  padding: 4px 9px;
-  font-size: 10px;
-}
 .sublist-search {
   width: 100%;
   margin-bottom: 10px;
 }
 .sublist-more {
   margin-top: 12px;
+}
+
+/* all-time monthly chart: axis labels */
+.spark-axis {
+  position: relative;
+  height: 18px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.spark-axis span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+.spark-axis span.mid {
+  transform: translateX(-50%);
+}
+.spark-axis span.mid:first-child {
+  transform: none;
 }

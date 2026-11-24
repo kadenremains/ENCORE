@@ -38,12 +38,15 @@ export type RangePreset =
   | 'last-90'
   | 'last-365'
   | 'year'
+  | 'month'
   | 'custom';
 
 export interface RangeSpec {
   preset: RangePreset;
-  /** for preset 'year' */
+  /** for presets 'year' and 'month' */
   year?: number;
+  /** for preset 'month': 0 = January */
+  month?: number;
   /** skip breaks: stretches of at least this many days with no scrobbles */
   gapDays?: number;
   /** ISO date strings (yyyy-mm-dd), inclusive, used for custom */

@@ -160,19 +160,12 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
 
 const PREVIEW = 15;
 
-/**
- * An artist's songs or albums, or an album's songs: the top 15 in the range, expandable to all
- * of them, and switchable to all time (every song you've ever played by them).
- */
+/** An artist's songs or albums, or an album's songs, in the selected range: the top 15, expandable to all of them. */
 function SubList({ title, itemKind, ownerKind, ownerIdx }: { title: string; itemKind: 'track' | 'album'; ownerKind: EntityKind; ownerIdx: number }) {
-  const { lib, stats, label, range } = useRangeStats();
-  const inRange = entityRangeStats(lib, ownerKind, ownerIdx, range);
-  const allTime = entityRangeStats(lib, ownerKind, ownerIdx, { from: 0, to: Infinity });
-  // nothing played in this range: start on all time so the list isn't empty
-  const [scope, setScope] = useState<'range' | 'all'>(inRange.plays ? 'range' : 'all');
+  const { lib, stats, range } = useRangeStats();
+  const er = entityRangeStats(lib, ownerKind, ownerIdx, range);
   const [expanded, setExpanded] = useState(false);
   const [q, setQ] = useState('');
-  const er = scope === 'range' ? inRange : allTime;
   const rows = itemKind === 'track' ? er.tracks : er.albums;
   const ranked = rows.map((r, i) => ({ r, rank: i + 1 }));
   const needle = q.trim().toLowerCase();
@@ -185,29 +178,19 @@ function SubList({ title, itemKind, ownerKind, ownerIdx }: { title: string; item
     return { key: `${itemKind}${r.idx}`, rank, kind: itemKind, name: it.name, artist: it.artist, meta: `${fmtPct(pct(r.count, er.plays))} ${whose}`, value: r.count, frac: r.count / max, href: entityPath(itemKind, it.name, it.artist) };
   });
   const noun = itemKind === 'track' ? 'songs' : 'albums';
-  if (!allTime.tracks.length || (itemKind === 'album' && !allTime.albums.length)) return null;
+  if (!rows.length) return null;
   return (
     <Panel
       className={expanded ? 'span-all' : ''}
       title={title}
       right={
-        <span className="sublist-controls">
-          <span className="muted small">
-            {fmtNum(rows.length)} {noun}
-          </span>
-          <span className="segmented mini">
-            <button type="button" className={scope === 'range' ? 'on' : ''} onClick={() => setScope('range')}>
-              {label}
-            </button>
-            <button type="button" className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
-              All time
-            </button>
-          </span>
+        <span className="muted small">
+          {fmtNum(rows.length)} {noun}
         </span>
       }
     >
       {expanded && rows.length > PREVIEW && <input className="text-input sublist-search" placeholder={`Search ${noun}…`} value={q} onChange={(e) => setQ(e.target.value)} />}
-      <Ledger compact items={items} empty={needle ? `No ${noun} match “${q}”.` : `No ${noun} played in ${label}.`} />
+      <Ledger compact items={items} empty={`No ${noun} match “${q}”.`} />
       {filtered.length > PREVIEW && (
         <button type="button" className="more sublist-more" onClick={() => setExpanded(!expanded)}>
           {expanded ? 'Show top 15' : `Show all ${fmtNum(filtered.length)} ${noun}`}

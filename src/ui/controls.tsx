@@ -144,7 +144,11 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
           const v = e.target.value;
           const keep = value.gapDays ? { gapDays: value.gapDays } : {};
           if (v.startsWith('y')) onChange({ preset: 'year', year: Number(v.slice(1)), ...keep });
-          else if (v === 'custom') onChange({ preset: 'custom', start, end, ...keep });
+          else if (v === 'month') {
+            // start on the latest month of what you were looking at (this month for "this year")
+            const at = new Date(Math.min(r.to * 1000 - 1, Date.now()));
+            onChange({ preset: 'month', year: at.getFullYear(), month: at.getMonth(), ...keep });
+          } else if (v === 'custom') onChange({ preset: 'custom', start, end, ...keep });
           else onChange({ preset: v as RangeSpec['preset'], ...keep });
         }}
       >
@@ -161,6 +165,7 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
           ))}
         </optgroup>
       </select>
+      {value.preset === 'month' && <MonthSelect value={value} onChange={onChange} firstTs={firstTs} years={years} />}
       {value.preset === 'custom' && (
         <div className="dates">
           <input type="date" min={minISO} max={end} value={start} onChange={(e) => e.target.value && onChange({ ...value, preset: 'custom', start: clamp(e.target.value), end })} />
@@ -183,6 +188,41 @@ export function RangePicker({ value, onChange, compact }: { value: RangeSpec; on
         {GAP_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(undefined, { month: 'short' }));
+
+/** Month + year pickers for the "A specific month" range. Months before your first scrobble or after this one can't be picked. */
+function MonthSelect({ value, onChange, firstTs, years }: { value: RangeSpec; onChange: (r: RangeSpec) => void; firstTs: number | null; years: number[] }) {
+  const now = new Date();
+  const first = firstTs ? new Date(firstTs * 1000) : new Date(2002, 0, 1);
+  const year = value.year ?? now.getFullYear();
+  const month = value.month ?? now.getMonth();
+  const ok = (y: number, m: number) => (y > first.getFullYear() || (y === first.getFullYear() && m >= first.getMonth())) && (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth()));
+  const set = (y: number, m: number) => {
+    // keep the month if it exists in that year, otherwise the nearest one that does
+    let mm = m;
+    if (!ok(y, mm)) mm = y === now.getFullYear() ? Math.min(m, now.getMonth()) : Math.max(m, first.getMonth());
+    onChange({ ...value, preset: 'month', year: y, month: mm });
+  };
+  return (
+    <div className="dates">
+      <select className="select" value={month} onChange={(e) => set(year, Number(e.target.value))} aria-label="Month">
+        {MONTHS.map((name, i) => (
+          <option key={i} value={i} disabled={!ok(year, i)}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select className="select" value={year} onChange={(e) => set(Number(e.target.value), month)} aria-label="Year">
+        {years.map((y) => (
+          <option key={y} value={y}>
+            {y}
           </option>
         ))}
       </select>

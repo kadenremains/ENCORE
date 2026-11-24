@@ -5,6 +5,7 @@ export const RANGE_PRESETS: { value: RangePreset; label: string }[] = [
   { value: 'last-year', label: 'Last year' },
   { value: 'this-month', label: 'This month' },
   { value: 'last-month', label: 'Last month' },
+  { value: 'month', label: 'Month…' },
   { value: 'last-7', label: 'Last 7 days' },
   { value: 'last-30', label: 'Last 30 days' },
   { value: 'last-90', label: 'Last 90 days' },
@@ -67,6 +68,11 @@ function resolveDates(spec: RangeSpec, now: Date): TimeRange {
       const yr = spec.year ?? y;
       return { from: sec(new Date(yr, 0, 1)), to: sec(new Date(yr + 1, 0, 1)) };
     }
+    case 'month': {
+      const yr = spec.year ?? y;
+      const mo = spec.month ?? m;
+      return { from: sec(new Date(yr, mo, 1)), to: sec(new Date(yr, mo + 1, 1)) };
+    }
     case 'custom': {
       const s = spec.start ? parseISODate(spec.start) : new Date(y, 0, 1);
       const e = spec.end ? parseISODate(spec.end) : today;
@@ -87,7 +93,7 @@ function previousDates(spec: RangeSpec, r: TimeRange): TimeRange {
   if (spec.preset === 'this-year' || spec.preset === 'last-year' || spec.preset === 'year') {
     return { from: sec(new Date(from.getFullYear() - 1, 0, 1)), to: r.from };
   }
-  if (spec.preset === 'this-month' || spec.preset === 'last-month') {
+  if (spec.preset === 'this-month' || spec.preset === 'last-month' || spec.preset === 'month') {
     return { from: sec(new Date(from.getFullYear(), from.getMonth() - 1, 1)), to: r.from };
   }
   const len = r.to - r.from;
@@ -107,6 +113,7 @@ export function rangeLabel(spec: RangeSpec, r: TimeRange, firstScrobble?: number
       return String(now.getFullYear() - 1);
     case 'this-month':
     case 'last-month':
+    case 'month':
       return fmt(new Date(r.from * 1000), { month: 'long', year: 'numeric' });
     case 'year':
       return String(spec.year ?? now.getFullYear());
