@@ -225,6 +225,13 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   return api<AdminStats>(token, '/admin/stats');
 }
 
+/** Owner only: behind-the-scenes version notes, which live on the server, not in the public code. */
+export async function fetchOwnerNotes(): Promise<{ version: string; text: string }[]> {
+  const { token } = useCloud.getState();
+  if (!token) return [];
+  return (await api<{ notes: { version: string; text: string }[] }>(token, '/admin/notes')).notes;
+}
+
 /** Download what an account synced before private sync, so nothing is lost when it's replaced. */
 async function legacyPull(token: string) {
   let cursor = { p: 0, i: 0, s: 0 };

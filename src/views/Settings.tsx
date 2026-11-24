@@ -11,7 +11,7 @@ import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../li
 import { ACCENTS, PALETTES } from '../lib/looks';
 import { APP_VERSION, CHANGELOG } from '../lib/changelog';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
-import { cancelSignIn, deleteAccountData, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
+import { cancelSignIn, deleteAccountData, fetchAdminStats, fetchOwnerNotes, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
@@ -454,10 +454,24 @@ function StatsTab() {
   );
 }
 
-/** Version history: app changes for everyone; owners also see the behind-the-scenes notes. */
+/** Version history: app changes for everyone; owners also see the behind-the-scenes notes (loaded from the server). */
 function Changelog({ owner = false }: { owner?: boolean }) {
   const [all, setAll] = useState(false);
-  const releases = CHANGELOG.map((r) => ({ ...r, notes: r.notes.filter((n) => owner || !n.owner) })).filter((r) => r.notes.length);
+  const [extra, setExtra] = useState<{ version: string; text: string }[]>([]);
+  useEffect(() => {
+    if (!owner) return;
+    let live = true;
+    fetchOwnerNotes()
+      .then((n) => live && setExtra(n))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [owner]);
+  const releases = CHANGELOG.map((r) => ({
+    ...r,
+    notes: [...r.notes.map((n) => ({ text: n.text, owner: false })), ...extra.filter((e) => e.version === r.version).map((e) => ({ text: e.text, owner: true }))],
+  }));
   const shown = all ? releases : releases.slice(0, 4);
   const date = (d: string) => new Date(`${d}T12:00`).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
   return (

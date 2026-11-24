@@ -20,6 +20,7 @@ import { md5 } from './md5';
  *  - GET  /art?type=&q=      artwork search (Deezer), so the app never runs third-party code
  *  - POST /blobs/missing, GET/PUT /blob/<id>   the encrypted picture store
  *  - GET  /admin/stats       owner-only usage numbers
+ *  - GET  /admin/notes       owner-only behind-the-scenes version notes (kept in the database, not in this repo)
  */
 
 export interface Env {
@@ -129,6 +130,9 @@ export default {
           break;
         case '/admin/stats':
           res = await adminStats(req, env);
+          break;
+        case '/admin/notes':
+          res = await adminNotes(req, env);
           break;
         case '/blobs/missing':
           res = req.method === 'POST' ? await blobsMissing(req, env) : json({ error: 'POST only' }, 405);
@@ -451,6 +455,15 @@ async function adminStats(req: Request, env: Env) {
     env.DB.prepare('SELECT display AS name, first_seen, last_seen, visits FROM visitors ORDER BY last_seen DESC LIMIT 500'),
   ]);
   return json({ accounts: accounts.results, visitors: visitors.results, now: Date.now() });
+}
+
+/** Behind-the-scenes version notes. They live only in the database so they aren't public. Owners only. */
+async function adminNotes(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
+  const rows = await env.DB.prepare('SELECT version, text FROM owner_notes ORDER BY version, seq').all<{ version: string; text: string }>();
+  return json({ notes: rows.results });
 }
 
 /* ---------------- vault: the account's data key, locked ---------------- */

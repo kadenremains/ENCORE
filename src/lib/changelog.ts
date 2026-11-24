@@ -1,13 +1,13 @@
 /**
- * Version history, newest first. Notes marked `owner` are behind-the-scenes (server, database,
- * security): only owners see those, in Settings → Owner. Everyone else sees the rest in
- * Settings → What's new.
+ * Version history, newest first: the app changes everyone sees in Settings → What's new.
+ * Behind-the-scenes notes (server, database, security) aren't in this public file: they live in
+ * the database (owner_notes) and only an owner's sign-in can load them, in Settings → Owner.
  */
 export interface Release {
   version: string;
   date: string; // yyyy-mm-dd
   title: string;
-  notes: { text: string; owner?: boolean }[];
+  notes: { text: string }[];
 }
 
 export const CHANGELOG: Release[] = [
@@ -20,9 +20,6 @@ export const CHANGELOG: Release[] = [
       { text: 'Settings → Account → Delete my synced data removes everything the server holds for your account.' },
       { text: 'A plain-language privacy summary in Settings → About, with the full note on GitHub.' },
       { text: 'Pasted picture links must be real web addresses, and profile links only ever open Last.fm.' },
-      { text: 'Content Security Policy on the site (scripts only from the site itself); referrers off.', owner: true },
-      { text: 'Server: /art Deezer proxy (names + Deezer image links only), nosniff / no-referrer / no-store headers on every response, /account/delete, the one-time /setup page and its table removed, no Last.fm key option in the site build.', owner: true },
-      { text: 'PRIVACY.md and SECURITY.md; GitHub builds now lint the app and type-check the server.', owner: true },
     ],
   },
   {
@@ -32,8 +29,6 @@ export const CHANGELOG: Release[] = [
     notes: [
       { text: 'Synced pictures take about a quarter less space, and a picture used in several wrappeds is uploaded once. Picture quality is exactly the same.' },
       { text: 'Pictures you’ve already downloaded are remembered by your browser, so syncing a new device is quicker.' },
-      { text: 'Picture store: encrypted pictures as binary in a blobs table, once per account, named by a keyed hash of their content; items list their refs and are refused until every picture is uploaded; unreferenced pictures are cleaned up after an hour.', owner: true },
-      { text: 'owner-data.mjs reads pictures from the picture store; schema.sql now describes a complete fresh database.', owner: true },
     ],
   },
   {
@@ -58,11 +53,6 @@ export const CHANGELOG: Release[] = [
       { text: 'The editor, Create and Settings load the first time you open them, so the app starts lighter.' },
       { text: 'Fixed: a sync and a Last.fm edit check at the same moment could store some plays twice.' },
       { text: 'Fixed: settings restored from a backup didn’t reach your other devices.' },
-      { text: 'Data key stored only locked with the Last.fm session key (never stored or logged); picture names HMAC-hashed; readable uploads refused once an account is private.', owner: true },
-      { text: 'Owner accounts (OWNERS) keep an escrowed key so the owner can read their own data (scripts/owner-data.mjs).', owner: true },
-      { text: 'Owner stats: Settings → Owner and the account_stats view (last used, size, wrappeds, pictures, devices, private), plus usernames looked up without signing in.', owner: true },
-      { text: 'Hardening: relay rate limit per IP and only read methods; generic error messages; sessions expire after 6 months idle; per-request logs off.', owner: true },
-      { text: 'All 11 existing sessions deleted to force the switch to private sync.', owner: true },
     ],
   },
   {
@@ -112,7 +102,6 @@ export const CHANGELOG: Release[] = [
       { text: 'Custom album pictures show on that album’s songs, even when the album artist is different.' },
       { text: 'Edits made just before leaving the app are saved straight away.' },
       { text: 'Accounts with no scrobbles get a proper message instead of an endless download.' },
-      { text: 'Sync revisions assigned in commit order, so a slow upload can’t be skipped by another device.', owner: true },
     ],
   },
   {
@@ -153,7 +142,6 @@ export const CHANGELOG: Release[] = [
       { text: 'Sign in with Last.fm to keep your wrappeds, pictures and settings on all your devices.' },
       { text: 'No Last.fm API key needed any more.' },
       { text: 'Each wrapped shows whether it’s synced.' },
-      { text: 'Cloudflare Worker + D1: sign-in, sync with last-write-wins and tombstones, Last.fm relay; big items stored in pieces.', owner: true },
     ],
   },
   {

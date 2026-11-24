@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS auth_pending (id TEXT PRIMARY KEY, pk TEXT, token TEX
 -- picture store: encrypted pictures, once per account; rows point at them with refs (JSON list)
 CREATE TABLE IF NOT EXISTS blobs (user TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, data BLOB NOT NULL, size INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user, id, seq));
 
+-- behind-the-scenes version notes, readable only by owners (kept out of the public repo)
+CREATE TABLE IF NOT EXISTS owner_notes (version TEXT NOT NULL, seq INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (version, seq));
+
 -- owner stats (usernames, sizes and last-used times only)
 CREATE TABLE IF NOT EXISTS visitors (name TEXT PRIMARY KEY, display TEXT, first_seen INTEGER, last_seen INTEGER, visits INTEGER NOT NULL DEFAULT 0);
 CREATE VIEW IF NOT EXISTS account_stats AS
