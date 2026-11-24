@@ -79,6 +79,68 @@ export function Settings({ tab, q }: { tab: SettingsTab; q?: string }) {
   );
 }
 
+/** Scrobbles on the device, including batch-scrobbled ones left out of stats. */
+const storedCount = (lib: ReturnType<typeof useApp.getState>['lib']) => (lib ? lib.n + (lib.batches?.skipped ? lib.batches.total : 0) : 0);
+
+/** Settings → Stats: runs of scrobbles seconds apart (skipped songs, imports), left out or not. */
+function BatchesGroup() {
+  const lib = useApp((s) => s.lib);
+  const reloadLibrary = useApp((s) => s.reloadLibrary);
+  const skip = usePrefs((p) => p.skipBatches);
+  const [open, setOpen] = useState<number | null>(null);
+  const [limit, setLimit] = useState(8);
+  const b = lib?.batches;
+  const fmtWhen = (t: number) => new Date(t * 1000).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: usePrefs.getState().hour12 });
+  return (
+    <Group
+      title="Batch-scrobbled plays"
+      desc="Scrobbles that land seconds apart aren't listens: songs skipped through that still got scrobbled, or a whole playlist sent at once by an import or scrobbling tool. They leave plays of songs, and versions of albums, you never actually heard. Last.fm keeps counting them either way."
+    >
+      <Row label="Leave them out of stats" hint={b?.total ? `${fmtNum(b.total)} plays in ${fmtNum(b.runs.length)} ${b.runs.length === 1 ? 'batch' : 'batches'} (4 or more in a row, each within 35 seconds of the last).` : 'None found in your history.'}>
+        <Toggle
+          value={skip}
+          onChange={(v) => {
+            setPrefs({ skipBatches: v });
+            void reloadLibrary();
+          }}
+          label=""
+        />
+      </Row>
+      {!!b?.runs.length && (
+        <ul className="batch-list">
+          {[...b.runs]
+            .reverse()
+            .slice(0, limit)
+            .map((r, i) => (
+              <li key={r.from}>
+                <button className="batch-head" onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i}>
+                  <span>{fmtWhen(r.from)}</span>
+                  <span className="muted small">
+                    {fmtNum(r.plays.length)} plays · {r.gap <= 1 ? 'at once' : `${r.gap} s apart`} {open === i ? '▴' : '▾'}
+                  </span>
+                </button>
+                {open === i && (
+                  <ol className="batch-plays small">
+                    {r.plays.map((p, k) => (
+                      <li key={k}>
+                        {p.tr} <span className="muted">· {p.ar}{p.al ? ` · ${p.al}` : ''}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </li>
+            ))}
+        </ul>
+      )}
+      {(b?.runs.length ?? 0) > limit && (
+        <button className="more" onClick={() => setLimit(limit + 20)}>
+          Show more · {fmtNum(b!.runs.length - limit)} left
+        </button>
+      )}
+    </Group>
+  );
+}
+
 function CleanupCount() {
   const n = useOpenMismatches()?.length;
   return n ? <span className="settings-nav-count">{n > 999 ? '999+' : n}</span> : null;
@@ -175,7 +237,7 @@ function AccountTab() {
               {user?.registered ? `Scrobbling since ${new Date(user.registered * 1000).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : ''}
               {user?.playcount ? ` · ${fmtNum(user.playcount)} scrobbles on Last.fm` : ''}
             </div>
-            <div className="muted small">{fmtNum(lib?.n ?? 0)} downloaded to this device</div>
+            <div className="muted small">{fmtNum(storedCount(lib))} downloaded to this device</div>
           </div>
         </div>
         {user?.url && (
@@ -355,6 +417,8 @@ function StatsTab() {
           )
         ) : null}
       </Group>
+
+      <BatchesGroup />
 
       <Group title="Numbers">
         <Row label="Compare with" hint="The ▲▼ changes next to numbers and chart movement.">
@@ -692,7 +756,7 @@ function DataTab() {
       <Group title="On this device">
         <div className="data-stats">
           <div>
-            <b>{fmtNum(lib?.n ?? 0)}</b>
+            <b>{fmtNum(storedCount(lib))}</b>
             <span>scrobbles</span>
           </div>
           <div>

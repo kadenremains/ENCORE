@@ -24,6 +24,8 @@ export interface Library {
   singles: SingleInfo[];
   /** one-song albums whose real track count we haven't asked Last.fm about yet */
   singleCandidates: { key: string; name: string; artist: string; plays: number }[];
+  /** batch-scrobbled runs found in the history (set when the library is loaded) */
+  batches?: import('./tidy').Batches;
 }
 
 export interface SingleInfo {

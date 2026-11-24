@@ -27,8 +27,11 @@ export function applyAppSettings(raw: unknown) {
   } catch {
     /* private mode */
   }
+  const skipBefore = getPrefs().skipBatches;
   if (d.prefs) {
     applyRemotePrefs(d.prefs);
+    // leaving batch-scrobbled plays in or out changes every number: rebuild
+    if (getPrefs().skipBatches !== skipBefore) void useApp.getState().reloadLibrary();
     markLookChosen(true); // an account with settings already has its look
   }
   useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });

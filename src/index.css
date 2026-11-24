@@ -4203,3 +4203,34 @@ kbd {
     grid-row: 1;
   }
 }
+
+/* ---------------- Settings → Stats: batch-scrobbled plays ---------------- */
+.batch-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.batch-list > li {
+  border-top: 1px solid var(--line);
+}
+.batch-head {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 2px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+}
+.batch-plays {
+  margin: 0 0 10px;
+  padding-left: 22px;
+  overflow-wrap: anywhere;
+}
+.batch-plays li {
+  padding: 2px 0;
+}

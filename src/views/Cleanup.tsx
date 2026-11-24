@@ -62,6 +62,7 @@ export function CleanupTab({ q: initialQ }: { q?: string }) {
           The same song, album or artist scrobbled under different names: a single and its album, a deluxe edition, “feat.” in the title, a different apostrophe, no album at all. Each one is split in your stats. <b>Merge</b> counts them as one in Encore (your Last.fm stays as it is), or open it on Last.fm to fix it there.
         </p>
 
+        <BatchNote />
         {!open ? (
           <p className="empty">Looking through your history…</p>
         ) : !all?.length ? (
@@ -130,6 +131,20 @@ export function CleanupTab({ q: initialQ }: { q?: string }) {
         </section>
       )}
     </>
+  );
+}
+
+/** Plays that are only batch-scrobbled don't show up here when they're left out of stats. */
+function BatchNote() {
+  const b = useApp((s) => s.lib?.batches);
+  if (!b?.total) return null;
+  return (
+    <p className="muted small settings-desc">
+      {b.skipped
+        ? `${plural(b.total, 'batch-scrobbled play')} (skipped songs or imports, seconds apart) ${b.total === 1 ? 'is' : 'are'} left out, so ${b.total === 1 ? 'it doesn’t' : 'they don’t'} show up here.`
+        : `${plural(b.total, 'batch-scrobbled play')} (skipped songs or imports, seconds apart) ${b.total === 1 ? 'is' : 'are'} counted, so some names here may come from songs you never heard.`}{' '}
+      <a href={routePath({ name: 'settings', tab: 'stats' })}>Change in Settings → Stats</a>
+    </p>
   );
 }
 

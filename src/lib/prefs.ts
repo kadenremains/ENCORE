@@ -20,6 +20,8 @@ export interface Prefs {
   minutesPerScrobble: number;
   startPage: 'overview' | 'artists' | 'albums' | 'songs' | 'listening' | 'records' | 'create';
   listLength: number;
+  /** leave out runs of scrobbles seconds apart (skipped songs, batch imports) */
+  skipBatches: boolean;
   /* pictures */
   listImages: boolean;
   onlineArt: boolean;
@@ -41,6 +43,7 @@ export const DEFAULT_PREFS: Prefs = {
   minutesPerScrobble: 3.5,
   startPage: 'overview',
   listLength: 100,
+  skipBatches: false,
   listImages: true,
   onlineArt: true,
   autoEditCheck: true,
