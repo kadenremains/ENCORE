@@ -4,7 +4,7 @@ import { KIND_LABEL, fmtPct, pct } from './helpers';
 import { AreaSpark, BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Move, Panel, WEEKDAYS, fmtDate, fmtDay, fmtHour, type LedgerItem } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath, routePath } from '../../router';
-import { dayToDate, entityAllTime, entityRangeStats, findEntity, getStats, type Library } from '../../lib/library';
+import { dayToDate, entityAllTime, entityAllTimeWeeks, entityRangeStats, findEntity, getStats, type Library } from '../../lib/library';
 import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
@@ -35,6 +35,9 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
   const rank = stats.rankMap(kind).get(idx)?.rank;
   const prevRank = prev ? (prev.rankMap(kind).get(idx)?.rank ?? null) : undefined;
   const prevPlays = prev ? (prev.rankMap(kind).get(idx)?.count ?? 0) : undefined;
+  // ranges made of whole months (a month, a year, all time) read fine month by month;
+  // anything picked by the day (last 30 days, custom dates) gets the week-by-week chart
+  const byWeek = !wholeMonths(range);
   const allRank = getStats(lib, { from: 0, to: Infinity }).rankMap(kind).get(idx)?.rank;
 
   // bucket this entity's days into the same buckets as the range timeline
@@ -114,8 +117,8 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
         <Kpi value={er.byHour.some(Boolean) ? fmtHour(er.byHour.indexOf(Math.max(...er.byHour))) : '—'} label="Favourite hour" sub={er.byWeekday.some(Boolean) ? `mostly on ${WEEKDAYS[er.byWeekday.indexOf(Math.max(...er.byWeekday))]}` : undefined} />
       </div>
 
-      <Panel title="All time, month by month" right={<span className="muted small">shaded: {label}</span>}>
-        <AreaSpark data={at.months} highlight={range} />
+      <Panel title={byWeek ? 'All time, week by week' : 'All time, month by month'} right={<span className="muted small">shaded: {label}</span>}>
+        <AreaSpark data={byWeek ? entityAllTimeWeeks(lib, kind, idx) : at.months.map((m) => ({ start: m.month, value: m.value }))} unit={byWeek ? 'week' : 'month'} highlight={range} />
       </Panel>
 
       {kind === 'artist' && <CreditedAlbums artistIdx={idx} name={name} />}
@@ -156,6 +159,14 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>
   );
+}
+
+function wholeMonths(r: { from: number; to: number }) {
+  const isMonthStart = (t: number) => {
+    const d = new Date(t * 1000);
+    return d.getDate() === 1 && d.getHours() === 0 && d.getMinutes() === 0;
+  };
+  return r.from <= 0 || (isMonthStart(r.from) && (r.to * 1000 > Date.now() || isMonthStart(r.to)));
 }
 
 const PREVIEW = 15;

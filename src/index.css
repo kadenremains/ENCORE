@@ -3337,24 +3337,3 @@ a.hl:hover {
   margin-top: 12px;
 }
 
-/* all-time monthly chart: axis labels */
-.spark-axis {
-  position: relative;
-  height: 18px;
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-.spark-axis span {
-  position: absolute;
-  top: 0;
-  white-space: nowrap;
-}
-.spark-axis span.mid {
-  transform: translateX(-50%);
-}
-.spark-axis span.mid:first-child {
-  transform: none;
-}

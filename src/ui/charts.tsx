@@ -262,82 +262,62 @@ export function Punchcard({ matrix }: { matrix: number[][] }) {
 /* ---------------- area spark (all-time monthly) ---------------- */
 
 /**
- * Monthly plays over all time. Each month gets an equal slot with its point in the middle, and the
- * shaded range is placed by exact date inside those slots (Aug 26 starts near the end of August).
+ * Plays over all time, one point per month or per week. The shaded part is the buckets the
+ * selected range touches.
  */
-export function AreaSpark({ data, height = 120, highlight }: { data: { month: Date; value: number }[]; height?: number; highlight?: { from: number; to: number } }) {
+export function AreaSpark({ data, unit = 'month', height = 120, highlight }: { data: { start: Date; value: number }[]; unit?: 'month' | 'week'; height?: number; highlight?: { from: number; to: number } }) {
   const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <p className="empty">Not enough history yet.</p>;
   const W = 600;
   const H = height;
-  const n = data.length;
-  const slot = W / n;
   const max = Math.max(1, ...data.map((d) => d.value));
-  const cx = (i: number) => (i + 0.5) * slot;
+  const step = W / (data.length - 1);
+  const x = (i: number) => i * step;
   const y = (v: number) => H - 4 - (v / max) * (H - 10);
-  const line = data.map((d, i) => `${i ? 'L' : 'M'}${cx(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
-  const y0 = data[0].month.getFullYear();
-  const m0 = data[0].month.getMonth();
-  // a moment in time -> x position (inside its month's slot)
-  const xAt = (tSec: number) => {
-    const d = new Date(tSec * 1000);
-    const i = (d.getFullYear() - y0) * 12 + d.getMonth() - m0;
-    const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
-    return Math.max(0, Math.min(W, (i + (d.getTime() - start) / (end - start)) * slot));
-  };
+  const line = data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
   let hl: { x0: number; x1: number } | null = null;
   if (highlight) {
-    const x0 = xAt(Math.max(highlight.from, data[0].month.getTime() / 1000));
-    const x1 = xAt(Math.min(highlight.to, Date.now() / 1000));
-    if (x1 > x0 && (x0 > 0.5 || x1 < W - 0.5)) hl = { x0, x1 }; // the whole chart = nothing to point out
+    // bucket i covers [start i, start i+1); shade the ones that overlap the range
+    const startOf = (i: number) => data[i].start.getTime() / 1000;
+    const endOf = (i: number) => (i + 1 < data.length ? startOf(i + 1) : Infinity);
+    const hit = data.map((_, i) => i).filter((i) => endOf(i) > highlight.from && startOf(i) < highlight.to);
+    if (hit.length && hit.length < data.length) {
+      const half = hit.length === 1 ? step / 2 : 0; // a single point still gets a visible band
+      hl = { x0: Math.max(0, x(hit[0]) - half), x1: Math.min(W, x(hit[hit.length - 1]) + half) };
+    }
   }
-  // labels: months for short histories, years for long ones
-  const short = n <= 30;
-  const every = short ? Math.max(1, Math.ceil(n / 8)) : 1;
-  const labels = data
-    .map((d, i) => ({ i, d }))
-    .filter(({ d, i }) => (short ? i % every === 0 : d.month.getMonth() === 0))
-    .map(({ i, d }) => ({
-      i,
-      text: short ? (i === 0 || d.month.getMonth() < every ? d.month.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) : d.month.toLocaleDateString(undefined, { month: 'short' })) : String(d.month.getFullYear()),
-    }));
-  const yearStep = short ? 1 : Math.max(1, Math.ceil(labels.length / 8));
-  const now = new Date();
-  const isCurrent = (d: Date) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  const years = data.map((d, i) => ({ i, d })).filter(({ d, i }) => i > 0 && d.start.getFullYear() !== data[i - 1].start.getFullYear());
+  const yStep = Math.max(1, Math.ceil(years.length / 8));
+  const tip = (d: { start: Date; value: number }) =>
+    unit === 'week'
+      ? `Week of ${d.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · ${fmtNum(d.value)} plays`
+      : `${d.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · ${fmtNum(d.value)} plays`;
   return (
     <div className="spark">
-      <div className="barchart-tip">
-        {hover !== null
-          ? `${data[hover].month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · ${fmtNum(data[hover].value)} plays${isCurrent(data[hover].month) ? ' so far' : ''}`
-          : ' '}
-      </div>
+      <div className="barchart-tip">{hover !== null ? tip(data[hover]) : ' '}</div>
       <svg
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`0 0 ${W} ${H + 16}`}
         preserveAspectRatio="none"
         width="100%"
-        height={H}
+        height={H + 16}
         onPointerMove={(e) => {
           const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-          setHover(Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width) * n))));
+          setHover(Math.max(0, Math.min(data.length - 1, Math.round(((e.clientX - r.left) / r.width) * (data.length - 1)))));
         }}
         onPointerLeave={() => setHover(null)}
       >
         {hl && <rect x={hl.x0} y={0} width={Math.max(2, hl.x1 - hl.x0)} height={H} className="spark-hl" />}
-        <path d={`${line} L${cx(n - 1).toFixed(1)},${H} L${cx(0).toFixed(1)},${H} Z`} className="spark-fill" />
+        <path d={`${line} L${W},${H} L0,${H} Z`} className="spark-fill" />
         <path d={line} className="spark-line" vectorEffect="non-scaling-stroke" />
-        {hover !== null && <line x1={cx(hover)} x2={cx(hover)} y1={0} y2={H} className="spark-cursor" vectorEffect="non-scaling-stroke" />}
-      </svg>
-      {/* HTML labels: SVG text would be stretched along with the chart */}
-      <div className="spark-axis">
-        {labels
-          .filter((_, k) => k % yearStep === 0)
-          .map(({ i, text }) => (
-            <span key={i} className={short ? 'mid' : ''} style={{ left: `${((short ? cx(i) : i * slot) / W) * 100}%` }}>
-              {text}
-            </span>
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={H} className="spark-cursor" vectorEffect="non-scaling-stroke" />}
+        {years
+          .filter((_, k) => k % yStep === 0)
+          .map(({ i, d }) => (
+            <text key={i} x={x(i)} y={H + 13} className="hm-label" textAnchor="middle" style={{ fontSize: 10 }}>
+              {d.start.getFullYear()}
+            </text>
           ))}
-      </div>
+      </svg>
     </div>
   );
 }

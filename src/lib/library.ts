@@ -810,6 +810,27 @@ export function entityAllTime(lib: Library, kind: EntityKind, idx: number): Enti
   });
 }
 
+/** One entity's plays per week (Monday start) from its first week to this week. */
+export function entityAllTimeWeeks(lib: Library, kind: EntityKind, idx: number): { start: Date; value: number }[] {
+  return ememo(`ew:${lib.version}:${kind}:${idx}`, () => {
+    const col = columnOf(lib, kind);
+    const weekStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    const counts = new Map<number, number>();
+    let first: Date | null = null;
+    for (let i = 0; i < lib.n; i++) {
+      if (col[i] !== idx) continue;
+      const w = weekStart(dayToDate(lib.day[i]));
+      if (!first) first = w;
+      counts.set(w.getTime(), (counts.get(w.getTime()) ?? 0) + 1);
+    }
+    const out: { start: Date; value: number }[] = [];
+    if (!first) return out;
+    const end = weekStart(new Date());
+    for (let w = first; w <= end; w = new Date(w.getFullYear(), w.getMonth(), w.getDate() + 7)) out.push({ start: w, value: counts.get(w.getTime()) ?? 0 });
+    return out;
+  });
+}
+
 export type MilestoneStep = 'classic' | number;
 
 const CLASSIC = [1, 100, 500, 1000, 2500, 5000, 10000, 15000, 20000, 25000];
