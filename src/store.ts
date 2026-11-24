@@ -39,7 +39,8 @@ const LS = {
   },
 };
 
-export type View = 'loading' | 'onboard' | 'app';
+/** handoff: a sign-in started in the iPhone home-screen app finished here in Safari */
+export type View = 'loading' | 'onboard' | 'app' | 'handoff';
 
 interface AppState {
   view: View;
@@ -51,6 +52,8 @@ interface AppState {
   sync: SyncProgress | null;
   syncError: string | null;
   authError: string | null;
+  /** the account a home-screen-app sign-in finished for (view 'handoff') */
+  handoffUser: string;
   /** why we're on the start screen (e.g. signed out) */
   notice: string | null;
   /** signed out of sync: back to the start screen until they sign in or choose to continue without */
@@ -254,6 +257,7 @@ export const useApp = create<AppState>((set, get) => ({
   sync: null,
   syncError: null,
   authError: null,
+  handoffUser: '',
   notice: LS.get('sw.signedOut') || null,
   exploreRange: loadJSON<RangeSpec>('sw.range', { preset: 'this-year' }),
   compare: (LS.get('sw.compare') as CompareMode) || 'previous',
@@ -278,6 +282,7 @@ export const useApp = create<AppState>((set, get) => ({
   init: async () => {
     // back from "Sign in with Last.fm"?
     const auth = consumeAuthRedirect();
+    if (auth?.handoff) return set({ view: 'handoff', handoffUser: auth.user ?? '' });
     if (auth?.error) set({ authError: auth.error });
     if (auth?.user) {
       const cur = get().username;

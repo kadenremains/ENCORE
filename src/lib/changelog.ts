@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.6.4',
+    date: '2026-11-24',
+    title: 'Clearer way back after signing in',
+    notes: [
+      { text: 'Signing in from the iPhone home-screen app: once you approve in Safari, Safari now says you’re signed in and to switch back to the app (which finishes by itself), instead of opening a second Encore. “Use Encore here in Safari instead” is there if you want it.' },
+    ],
+  },
+  {
     version: '2.6.3',
     date: '2026-11-24',
     title: 'Last.fm links open in Safari',

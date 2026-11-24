@@ -4261,3 +4261,26 @@ kbd {
   font-family: 'JetBrains Mono Variable', monospace;
   font-size: 11px;
 }
+
+/* ---------------- sign-in finished in Safari: go back to the app ---------------- */
+.onboard-card.handoff {
+  text-align: center;
+}
+.onboard-card.handoff .brand {
+  justify-content: center;
+}
+.handoff-check {
+  width: 56px;
+  height: 56px;
+  margin: 18px auto 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+}
+.onboard-card.handoff p {
+  margin: 10px 0;
+}

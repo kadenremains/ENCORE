@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { useApp } from './store';
 import { useRoute } from './router';
 import { Onboard } from './views/Onboard';
+import { SignInHandoff } from './views/SignInHandoff';
 import { Shell } from './views/Shell';
 import { Overview } from './views/stats/Overview';
 import { TopView } from './views/stats/TopView';
@@ -98,6 +99,7 @@ function Main() {
       </div>
     );
   if (view === 'onboard') return <Onboard />;
+  if (view === 'handoff') return <SignInHandoff />;
   // first run: pick a look before anything else (a new account's history downloads meanwhile)
   if (!look.chosen) {
     if (token && !look.accountChecked) return loading;

@@ -398,7 +398,7 @@ async function startSyncing(token: string, user: string) {
 }
 
 /** If we just came back from "Sign in with Last.fm", store the session. */
-export function consumeAuthRedirect(): { user?: string; error?: string } | null {
+export function consumeAuthRedirect(): { user?: string; error?: string; handoff?: boolean } | null {
   const h = location.hash;
   if (!h.startsWith('#auth=') && !h.startsWith('#auth_error=')) return null;
   const params = new URLSearchParams(h.slice(1));
@@ -419,9 +419,29 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
   } catch {
     /* ignore */
   }
+  // Sign-in started in the iPhone home-screen app and finished in Safari (or the app's sign-in view):
+  // the app collects it by itself, so this page only says "go back" instead of opening a second Encore.
+  if (!startedHere && isIOS() && !isStandalone()) {
+    handoff = { token, user };
+    return { user, handoff: true };
+  }
   if (startedHere) LS.set(PENDING, null);
   adoptSession(token, user);
   return { user };
+}
+
+let handoff: { token: string; user: string } | null = null;
+
+/** On the "go back to the app" page: use Encore here in Safari instead. */
+export function continueSignInHere() {
+  if (!handoff) return;
+  try {
+    sessionStorage.setItem('sw.signinHere', '1');
+  } catch {
+    /* ignore */
+  }
+  location.replace(`${location.pathname}${location.search}#auth=${handoff.token}&user=${encodeURIComponent(handoff.user)}`);
+  location.reload();
 }
 
 /** Delete everything the server holds for this account, then sign out here. Local data stays. */
