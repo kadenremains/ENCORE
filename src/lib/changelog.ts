@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.4.1',
+    date: '2026-11-24',
+    title: 'Sign-in fix for the home-screen app',
+    notes: [
+      { text: 'Fixed: after being signed out, signing in from the home-screen app didn’t stick. It works again; if a sign-in ever can’t finish, the app now says so.' },
+    ],
+  },
+  {
     version: '2.4',
     date: '2026-11-24',
     title: 'Safety check',

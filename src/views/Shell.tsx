@@ -123,7 +123,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           </button>
         </div>
       )}
-      {cloud.token && cloud.error && hideErr !== cloud.error && (
+      {cloud.error && hideErr !== cloud.error && (
         <div className="demo-banner notice err">
           <span>{cloud.error}</span>{' '}
           <button className="link" onClick={() => void syncNow()}>

@@ -279,6 +279,18 @@ export function prepareSignIn() {
  */
 export function startSignIn() {
   if (!API_URL) return;
+  if (!sealKeys && isStandalone()) {
+    // not ready yet (rare): make the key first, then go
+    void newSealKeys()
+      .then((k) => (sealKeys = k))
+      .catch(() => {})
+      .finally(() => beginSignIn());
+    return;
+  }
+  beginSignIn();
+}
+
+function beginSignIn() {
   const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
   const keys = sealKeys;
   sealKeys = null;
@@ -358,7 +370,11 @@ function adoptSession(token: string, user: string, sessionKey?: string) {
     else {
       dataKey = dataKey ?? (await loadLocalKey(user));
       // no key and no way to unlock one: treat it as signed out, so signing in sets it up
-      if (!dataKey) return void signOut();
+      if (!dataKey) {
+        await signOut();
+        useCloud.setState({ error: "Sign-in didn't finish. Please try again." });
+        return;
+      }
       useCloud.setState({ privacy: 'ready' });
     }
     if (dataKey) void syncNow();
@@ -403,6 +419,8 @@ export async function signOut() {
   LS.set('sw.cloud.escrow', null);
   dataKey = null;
   useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false, privacy: null, owner: false });
+  // ready for the next sign-in (home-screen apps need this key before Last.fm opens)
+  prepareSignIn();
 }
 
 /* ---------------- sync ---------------- */
@@ -782,7 +800,7 @@ export function initCloud(h: Hooks) {
   hooks = h;
   if (started || !API_URL) return;
   started = true;
-  if (!useCloud.getState().token) prepareSignIn();
+  prepareSignIn(); // even when signed in: this device may be signed out by the server at any time
   if (useCloud.getState().token && LS.get(K.version) !== SYNC_VERSION) {
     LS.set(K.pushedAt, null);
     LS.set(K.cursor, null);

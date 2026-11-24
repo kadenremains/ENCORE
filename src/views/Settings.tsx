@@ -219,9 +219,12 @@ function AccountTab() {
             </div>
           </div>
         ) : cloud.available?.signIn ? (
-          <button className="btn primary" onClick={startSignIn}>
-            Sign in with Last.fm
-          </button>
+          <>
+            {cloud.error && <p className="error small">{cloud.error}</p>}
+            <button className="btn primary" onClick={startSignIn}>
+              Sign in with Last.fm
+            </button>
+          </>
         ) : (
           <p className="muted small">Sync isn't available right now.</p>
         )}
