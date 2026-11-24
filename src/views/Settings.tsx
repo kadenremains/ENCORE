@@ -498,7 +498,7 @@ function ImagesTab() {
 /* ------------------------------------------------------------------ appearance */
 
 const PALETTES: { id: Prefs['palette']; name: string; desc: string; colors: [string, string, string] }[] = [
-  { id: 'ink', name: 'Ink', desc: 'The original: silver on near-black', colors: ['#0a0a0c', '#18181c', '#e8ebf1'] },
+  { id: 'ink', name: 'Vault', desc: 'The original: silver on near-black', colors: ['#0a0a0c', '#18181c', '#e8ebf1'] },
   { id: 'oled', name: 'Black', desc: 'True black, for OLED screens', colors: ['#000000', '#101010', '#f2f2f2'] },
   { id: 'midnight', name: 'Midnight', desc: 'Deep blue-black', colors: ['#080b12', '#151b2a', '#e6ecf8'] },
   { id: 'sepia', name: 'Darkroom', desc: 'Warm, like old prints', colors: ['#100d0a', '#1e1914', '#efe6d8'] },

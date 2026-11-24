@@ -25,7 +25,7 @@ Open from the profile menu (top right). Tabs:
 - **Stats:** skip breaks, what changes are compared against, 12/24-hour clock, minutes per scrobble, the page the app opens on, chart length, milestone interval, automatic checks for Last.fm edits.
 - **Albums & singles:** the singles switch with every single listed (and the ones you kept as albums), refresh Last.fm's album grouping, re-check singles.
 - **Images:** online picture lookups on/off, pictures in lists, "My picture", and every custom picture.
-- **Appearance:** palettes (Ink, Black, Midnight, Darkroom, Paper), seven accent colors, text size, film grain, animations.
+- **Appearance:** palettes (Vault, Black, Midnight, Darkroom, Paper), seven accent colors, text size, film grain, animations.
 - **Data & storage:** what's stored on the device, backup to a file and restore, re-download your history, clear caches.
 - **About:** version and update check, data sources, wrapped editor shortcuts.
 
