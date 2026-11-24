@@ -3969,3 +3969,56 @@ kbd {
     display: none;
   }
 }
+
+/* Settings → What's new / Owner: version history */
+.changelog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.changelog-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.changelog-head > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.changelog-version {
+  font-family: var(--disp);
+  font-size: 26px;
+  letter-spacing: 0.06em;
+  color: var(--accent-2);
+  min-width: 44px;
+}
+.changelog ul {
+  margin: 0;
+  padding-left: 74px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--soft);
+}
+.changelog-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line-2);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .changelog ul {
+    padding-left: 18px;
+  }
+}

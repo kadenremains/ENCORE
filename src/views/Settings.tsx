@@ -9,6 +9,7 @@ import { GAP_OPTIONS, type CompareMode } from '../lib/range';
 import { useRangeStats } from './stats/useRangeStats';
 import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../lib/prefs';
 import { ACCENTS, PALETTES } from '../lib/looks';
+import { APP_VERSION, CHANGELOG } from '../lib/changelog';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
 import { cancelSignIn, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
@@ -29,13 +30,14 @@ const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'appearance', label: 'Appearance', icon: '◐', desc: 'Palette, accent, text size' },
   { id: 'data', label: 'Data & storage', icon: '⛁', desc: 'Backups, history, caches' },
   { id: 'about', label: 'About', icon: 'ⓘ', desc: 'Version, sources, shortcuts' },
-  { id: 'owner', label: 'Owner', icon: '⌘', desc: 'Who uses Encore' },
+  { id: 'whatsnew', label: 'What’s new', icon: '✦', desc: `Version ${APP_VERSION}` },
+  { id: 'owner', label: 'Owner', icon: '⌘', desc: 'Who uses Encore, and every change' },
 ];
 
 export function Settings({ tab }: { tab: SettingsTab }) {
   const owner = useCloud((s) => s.owner);
-  // the Owner tab only exists for owner accounts (the server checks too)
-  const tabs = owner ? TABS : TABS.filter((t) => t.id !== 'owner');
+  // owners get the Owner tab (stats + the full history); everyone else gets What's new in that slot
+  const tabs = TABS.filter((t) => (owner ? t.id !== 'whatsnew' : t.id !== 'owner'));
   const current = tabs.find((t) => t.id === tab) ?? tabs[0];
   return (
     <div className="page settings">
@@ -64,6 +66,7 @@ export function Settings({ tab }: { tab: SettingsTab }) {
           {current.id === 'appearance' && <AppearanceTab />}
           {current.id === 'data' && <DataTab />}
           {current.id === 'about' && <AboutTab />}
+          {current.id === 'whatsnew' && <Changelog />}
           {current.id === 'owner' && <OwnerTab />}
         </div>
       </div>
@@ -431,7 +434,46 @@ function StatsTab() {
           </Row>
         </Group>
       )}
+      <Changelog owner />
     </>
+  );
+}
+
+/** Version history: app changes for everyone; owners also see the behind-the-scenes notes. */
+function Changelog({ owner = false }: { owner?: boolean }) {
+  const [all, setAll] = useState(false);
+  const releases = CHANGELOG.map((r) => ({ ...r, notes: r.notes.filter((n) => owner || !n.owner) })).filter((r) => r.notes.length);
+  const shown = all ? releases : releases.slice(0, 4);
+  const date = (d: string) => new Date(`${d}T12:00`).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+  return (
+    <Group title={owner ? 'Version history (everything)' : 'Version history'} right={<span className="muted small">You’re on {APP_VERSION}</span>}>
+      <ol className="changelog">
+        {shown.map((r) => (
+          <li key={r.version}>
+            <div className="changelog-head">
+              <span className="changelog-version">{r.version}</span>
+              <span>
+                <b>{r.title}</b>
+                <span className="muted small">{date(r.date)}</span>
+              </span>
+            </div>
+            <ul>
+              {r.notes.map((n, i) => (
+                <li key={i} className={n.owner ? 'owner-note' : ''}>
+                  {n.owner && <span className="changelog-tag">server</span>}
+                  {n.text}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ol>
+      {releases.length > shown.length && (
+        <button className="more" onClick={() => setAll(true)}>
+          Show all {releases.length} versions
+        </button>
+      )}
+    </Group>
   );
 }
 
@@ -721,7 +763,9 @@ function AboutTab() {
           <div>
             <div className="profile-name">Encore</div>
             <div className="muted small">Your Last.fm stats, plus wrappeds for any time range.</div>
-            <div className="muted small mono">Version {buildId()}</div>
+            <div className="muted small mono">
+              Version {APP_VERSION} · build {buildId()}
+            </div>
           </div>
         </div>
         <Row label="Updates" hint="New versions load by themselves when you open the app.">

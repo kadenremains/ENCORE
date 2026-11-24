@@ -282,6 +282,140 @@ const CATALOG: Artist[] = [
   },
 ];
 
+/**
+ * The long tail: artists discovered at some point, played a lot for a while, then now and then.
+ * [artist, album, release date, songs (biggest first, | separated)]. Where the exact day was
+ * unsure the date is a little late, never early.
+ */
+const LONG_TAIL: [string, string, string, string][] = [
+  ['Billie Eilish', 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?', '2019-03-29', 'bad guy|when the party’s over|bury a friend'],
+  ['Billie Eilish', 'HIT ME HARD AND SOFT', '2024-05-17', 'BIRDS OF A FEATHER|LUNCH|WILDFLOWER'],
+  ['Olivia Rodrigo', 'SOUR', '2021-05-21', 'drivers license|good 4 u|deja vu|traitor'],
+  ['Olivia Rodrigo', 'GUTS', '2023-09-08', 'vampire|bad idea right?|get him back!'],
+  ['Taylor Swift', '1989', '2014-10-27', 'Blank Space|Style|Shake It Off'],
+  ['Taylor Swift', 'folklore', '2020-07-24', 'cardigan|august|exile'],
+  ['Harry Styles', 'Harry’s House', '2022-05-20', 'As It Was|Late Night Talking|Matilda'],
+  ['Dua Lipa', 'Future Nostalgia', '2020-03-27', 'Levitating|Don’t Start Now|Physical'],
+  ['Doja Cat', 'Planet Her', '2021-06-25', 'Kiss Me More|Need to Know|Woman'],
+  ['Travis Scott', 'ASTROWORLD', '2018-08-03', 'SICKO MODE|STARGAZING|BUTTERFLY EFFECT'],
+  ['Travis Scott', 'UTOPIA', '2023-07-28', 'FE!N|MY EYES|I KNOW ?'],
+  ['Drake', 'Take Care', '2011-11-15', 'Marvins Room|Take Care|Headlines'],
+  ['Drake', 'Nothing Was the Same', '2013-09-24', 'Hold On, We’re Going Home|Started From the Bottom|Too Much'],
+  ['J. Cole', '2014 Forest Hills Drive', '2014-12-09', 'No Role Modelz|Love Yourz|Wet Dreamz'],
+  ['Daniel Caesar', 'Freudian', '2017-08-25', 'Best Part|Get You|Hold Me Down'],
+  ['Brent Faiyaz', 'WASTELAND', '2022-07-08', 'DEAD MAN WALKING|ALL MINE|WASTING TIME'],
+  ['Giveon', 'TAKE TIME', '2020-03-27', 'Heartbreak Anniversary|Like I Want You'],
+  ['Solange', 'A Seat at the Table', '2016-09-30', 'Cranes in the Sky|Don’t Touch My Hair|F.U.B.U.'],
+  ['Erykah Badu', 'Baduizm', '1997-02-11', 'On & On|Next Lifetime|Otherside of the Game'],
+  ['D’Angelo', 'Voodoo', '2000-01-25', 'Untitled (How Does It Feel)|Spanish Joint|Devil’s Pie'],
+  ['Lauryn Hill', 'The Miseducation of Lauryn Hill', '1998-08-25', 'Ex-Factor|Doo Wop (That Thing)|To Zion'],
+  ['Amy Winehouse', 'Back to Black', '2006-10-27', 'Back to Black|Rehab|Tears Dry on Their Own'],
+  ['Earl Sweatshirt', 'Doris', '2013-08-20', 'Chum|Hive|Burgundy'],
+  ['Vince Staples', 'Big Fish Theory', '2017-06-23', 'Big Fish|Yeah Right|BagBak'],
+  ['Kid Cudi', 'Man on the Moon: The End of Day', '2009-09-15', 'Day ’N’ Nite (Nightmare)|Pursuit of Happiness|Soundtrack 2 My Life'],
+  ['A$AP Rocky', 'LONG.LIVE.A$AP', '2013-01-15', 'Goldie|Wild for the Night|F**kin’ Problems'],
+  ['Playboi Carti', 'Whole Lotta Red', '2020-12-25', 'Sky|Stop Breathing|Vamp Anthem'],
+  ['Lil Uzi Vert', 'Luv Is Rage 2', '2017-08-25', 'XO TOUR Llif3|The Way Life Goes|Sauce It Up'],
+  ['Metro Boomin', 'HEROES & VILLAINS', '2022-12-02', 'Superhero (Heroes & Villains)|Creepin’|Too Many Nights'],
+  ['Joji', 'BALLADS 1', '2018-10-26', 'SLOW DANCING IN THE DARK|YEAH RIGHT|TEST DRIVE'],
+  ['Rex Orange County', 'Pony', '2019-10-25', '10/10|Always|Pluto Projector'],
+  ['Cigarettes After Sex', 'Cigarettes After Sex', '2017-06-09', 'Apocalypse|Sweet|K.'],
+  ['Beach House', 'Bloom', '2012-05-15', 'Myth|Lazuli|Wild'],
+  ['Beach House', 'Depression Cherry', '2015-08-28', 'Space Song|Levitation|Sparks'],
+  ['Mac DeMarco', '2', '2012-10-16', 'Ode to Viceroy|Freaking Out the Neighborhood|My Kind of Woman'],
+  ['Mac DeMarco', 'Salad Days', '2014-04-01', 'Chamber of Reflection|Salad Days|Let Her Go'],
+  ['The Strokes', 'Is This It', '2001-07-30', 'Someday|Last Nite|Hard to Explain'],
+  ['The Strokes', 'The New Abnormal', '2020-04-10', 'The Adults Are Talking|Bad Decisions|At the Door'],
+  ['The 1975', 'The 1975', '2013-09-02', 'Chocolate|Robbers|Sex'],
+  ['The 1975', 'I like it when you sleep, for you are so beautiful yet so unaware of it', '2016-02-26', 'Somebody Else|The Sound|A Change of Heart'],
+  ['Vampire Weekend', 'Modern Vampires of the City', '2013-05-14', 'Step|Hannah Hunt|Diane Young'],
+  ['Vampire Weekend', 'Father of the Bride', '2019-05-03', 'Harmony Hall|This Life|Sunflower'],
+  ['MGMT', 'Oracular Spectacular', '2008-01-22', 'Electric Feel|Kids|Time to Pretend'],
+  ['Glass Animals', 'How to Be a Human Being', '2016-08-26', 'Youth|Season 2 Episode 3|Pork Soda'],
+  ['Glass Animals', 'Dreamland', '2020-08-07', 'Heat Waves|Tangerine|Your Love (Déjà Vu)'],
+  ['Gorillaz', 'Demon Days', '2005-05-23', 'Feel Good Inc.|DARE|Kids with Guns'],
+  ['Gorillaz', 'Plastic Beach', '2010-03-08', 'On Melancholy Hill|Stylo|Rhinestone Eyes'],
+  ['Florence + The Machine', 'Lungs', '2009-07-06', 'Dog Days Are Over|Cosmic Love|You’ve Got the Love'],
+  ['Paramore', 'After Laughter', '2017-05-12', 'Hard Times|Rose-Colored Boy|Told You So'],
+  ['boygenius', 'the record', '2023-03-31', 'Not Strong Enough|Cool About It|$20'],
+  ['Japanese Breakfast', 'Jubilee', '2021-06-04', 'Be Sweet|Kokomo, IN|Slide Tackle'],
+  ['Weyes Blood', 'Titanic Rising', '2019-04-05', 'Andromeda|Everyday|Movies'],
+  ['Big Thief', 'Dragon New Mountain I Believe in You', '2022-02-11', 'Change|Simulation Swarm|Little Things'],
+  ['Snail Mail', 'Lush', '2018-06-08', 'Pristine|Heat Wave|Speaking Terms'],
+  ['Soccer Mommy', 'Clean', '2018-03-02', 'Your Dog|Cool|Scorpio Rising'],
+  ['Men I Trust', 'Oncle Jazz', '2019-09-27', 'Show Me How|Tailwhip|Numb'],
+  ['KAYTRANADA', '99.9%', '2016-05-06', 'Glowed Up|Lite Spots|You’re the One'],
+  ['Disclosure', 'Settle', '2013-06-03', 'Latch|White Noise|F for You'],
+  ['Jamie xx', 'In Colour', '2015-05-29', 'Gosh|Loud Places|I Know There’s Gonna Be (Good Times)'],
+  ['Flume', 'Skin', '2016-05-27', 'Never Be Like You|Say It|Smoke & Retribution'],
+  ['ROSALÍA', 'El Mal Querer', '2018-11-02', 'MALAMENTE|PIENSO EN TU MIRÁ|DI MI NOMBRE'],
+  ['ROSALÍA', 'MOTOMAMI', '2022-03-18', 'SAOKO|LA FAMA|CANDY'],
+  ['Bad Bunny', 'Un Verano Sin Ti', '2022-05-06', 'Tití Me Preguntó|Me Porto Bonito|Moscow Mule'],
+  ['Rihanna', 'ANTI', '2016-01-28', 'Needed Me|Work|Love on the Brain|Kiss It Better'],
+  ['Jhené Aiko', 'Trip', '2017-09-22', 'While We’re Young|Sativa'],
+  ['Summer Walker', 'Over It', '2019-10-04', 'Playing Games|Come Thru|Body'],
+  ['Pusha T', 'DAYTONA', '2018-05-25', 'If You Know You Know|The Games We Play|Santeria'],
+  ['Anderson .Paak', 'Malibu', '2016-01-15', 'Come Down|The Bird|Am I Wrong'],
+  ['Thundercat', 'Drunk', '2017-02-24', 'Them Changes|Show You the Way|Friend Zone'],
+  ['Omar Apollo', 'Ivory', '2022-04-08', 'Evergreen (You Didn’t Deserve Me at All)|Tamagotchi'],
+  ['RAYE', 'My 21st Century Blues', '2023-02-03', 'Escapism.|Ice Cream Man|Black Mascara.'],
+  ['PinkPantheress', 'to hell with it', '2021-10-15', 'Just for me|Pain|Break It Off'],
+  ['Troye Sivan', 'Something to Give Each Other', '2023-10-13', 'Rush|One of Your Girls|Got Me Started'],
+  ['Carly Rae Jepsen', 'EMOTION', '2015-08-21', 'Run Away with Me|Your Type|I Really Like You'],
+  ['Robyn', 'Body Talk', '2010-11-22', 'Dancing On My Own|Call Your Girlfriend|Indestructible'],
+  ['Grimes', 'Art Angels', '2015-11-06', 'Kill V. Maim|Flesh without Blood|California'],
+  ['FKA twigs', 'LP1', '2014-08-11', 'Two Weeks|Pendulum|Video Girl'],
+  ['James Blake', 'Overgrown', '2013-04-05', 'Retrograde|Overgrown|Life Round Here'],
+  ['Sufjan Stevens', 'Carrie & Lowell', '2015-03-31', 'Should Have Known Better|Fourth of July|Death with Dignity'],
+  ['Fleet Foxes', 'Helplessness Blues', '2011-05-03', 'Helplessness Blues|Montezuma|Grown Ocean'],
+  ['Hozier', 'Hozier', '2014-09-19', 'Take Me to Church|Work Song|Someone New'],
+  ['The Neighbourhood', 'I Love You.', '2013-04-22', 'Sweater Weather|Afraid|Let It Go'],
+  ['Phoenix', 'Wolfgang Amadeus Phoenix', '2009-05-25', '1901|Lisztomania|Fences'],
+  ['Foster the People', 'Torches', '2011-05-23', 'Pumped Up Kicks|Houdini|Helena Beat'],
+  ['Two Door Cinema Club', 'Tourist History', '2010-03-01', 'What You Know|Undercover Martyn|I Can Talk'],
+  ['Cocteau Twins', 'Heaven or Las Vegas', '1990-09-17', 'Heaven or Las Vegas|Cherry-Coloured Funk|Iceblink Luck'],
+  ['Mazzy Star', 'So Tonight That I Might See', '1993-10-05', 'Fade Into You|Into Dust|Five String Serenade'],
+  ['Portishead', 'Dummy', '1994-08-22', 'Glory Box|Sour Times|Roads'],
+  ['Massive Attack', 'Mezzanine', '1998-04-20', 'Teardrop|Angel|Inertia Creeps'],
+  ['Prince', 'Purple Rain', '1984-06-25', 'Purple Rain|When Doves Cry|Let’s Go Crazy'],
+  ['Michael Jackson', 'Thriller', '1982-11-30', 'Billie Jean|Beat It|Human Nature'],
+  ['Stevie Wonder', 'Songs in the Key of Life', '1976-09-28', 'Sir Duke|Isn’t She Lovely|As'],
+  ['Marvin Gaye', 'What’s Going On', '1971-05-21', 'What’s Going On|Mercy Mercy Me (The Ecology)|Inner City Blues (Make Me Wanna Holler)'],
+  ['Talking Heads', 'Remain in Light', '1980-10-08', 'Once in a Lifetime|Born Under Punches (The Heat Goes On)|Houses in Motion'],
+  ['The Smiths', 'The Queen Is Dead', '1986-06-16', 'There Is a Light That Never Goes Out|Bigmouth Strikes Again|The Boy with the Thorn in His Side'],
+  ['Kate Bush', 'Hounds of Love', '1985-09-16', 'Running Up That Hill (A Deal with God)|Cloudbusting|Hounds of Love'],
+  ['The Beach Boys', 'Pet Sounds', '1966-05-16', 'God Only Knows|Wouldn’t It Be Nice|Sloop John B'],
+  ['The Beatles', 'Abbey Road', '1969-09-26', 'Here Comes the Sun|Come Together|Something'],
+  ['Nirvana', 'Nevermind', '1991-09-24', 'Smells Like Teen Spirit|Come as You Are|Lithium'],
+  ['Deftones', 'White Pony', '2000-06-20', 'Change (In the House of Flies)|Digital Bath|Passenger'],
+  ['Slowdive', 'Souvlaki', '1993-06-01', 'Alison|When the Sun Hits|40 Days'],
+  ['My Bloody Valentine', 'Loveless', '1991-11-04', 'Only Shallow|Sometimes|When You Sleep'],
+  ['Outkast', 'Speakerboxxx/The Love Below', '2003-09-23', 'Hey Ya!|Roses|The Way You Move'],
+  ['Nas', 'Illmatic', '1994-04-19', 'N.Y. State of Mind|The World Is Yours|It Ain’t Hard to Tell'],
+  ['Madvillain', 'Madvillainy', '2004-03-23', 'Accordion|All Caps|Rhinestone Cowboy'],
+  ['A Tribe Called Quest', 'The Low End Theory', '1991-09-24', 'Scenario|Check the Rhime|Buggin’ Out'],
+  ['Isaiah Rashad', 'The House Is Burning', '2021-07-30', 'Headshots (4r Da Locals)|Lay Wit Ya'],
+  ['Noname', 'Room 25', '2018-09-14', 'Blaxploitation|Self|Montego Bae'],
+  ['Saba', 'CARE FOR ME', '2018-04-05', 'LIFE|BUSY / SIRENS|PROM / KING'],
+  ['Freddie Gibbs', 'Piñata', '2014-03-18', 'Thuggin’|Shitsville|Harold’s'],
+  ['Denzel Curry', 'Melt My Eyez See Your Future', '2022-03-25', 'Walkin|Worst Comes to Worst|Ain’t No Way'],
+  ['JID', 'The Forever Story', '2022-08-26', 'Surround Sound|Kody Blu 31|Dance Now'],
+  ['Jungle', 'For Ever', '2018-09-14', 'Happy Man|Casio|Heavy, California'],
+  ['Jungle', 'Volcano', '2023-08-11', 'Back On 74|Candle Flame|I’ve Been in Love'],
+  ['Khruangbin', 'Con Todo El Mundo', '2018-01-26', 'Maria También|Friday Morning|Evan Finds the Third Room'],
+  ['Unknown Mortal Orchestra', 'Multi-Love', '2015-05-26', 'Multi-Love|Can’t Keep Checking My Phone|Like Acid Rain'],
+  ['Toro y Moi', 'Outer Peace', '2019-01-18', 'Ordinary Pleasure|Freelance|Laws of the Universe'],
+  ['Washed Out', 'Within and Without', '2011-07-12', 'Eyes Be Closed|Amor Fati|Echoes'],
+  ['Blood Orange', 'Freetown Sound', '2016-06-28', 'Augustine|Best to You|Hadron Collider'],
+  ['Moses Sumney', 'Aromanticism', '2017-09-22', 'Doomed|Quarrel|Plastic'],
+  ['beabadoobee', 'Beatopia', '2022-07-15', 'Talk|The Perfect Pair'],
+  ['Laufey', 'Bewitched', '2023-09-08', 'From the Start|Promise|Bewitched'],
+  ['Gracie Abrams', 'The Secret of Us', '2024-06-21', 'I Love You, I’m Sorry|Risk|Close to You'],
+  ['Tinashe', 'Quantum Baby', '2024-08-16', 'Nasty|No Simpatico|Getting No Sleep'],
+  ['Doechii', 'Alligator Bites Never Heal', '2024-08-30', 'DENIAL IS A RIVER|NISSAN ALTIMA|CATFISH'],
+  ['Tems', 'Born in the Wild', '2024-06-07', 'Love Me JeJe|Me & U|Burning'],
+];
+
 function rng(seed: number) {
   return () => {
     seed |= 0;
@@ -320,11 +454,28 @@ export function generateDemo(): StoredScrobble[] {
   const hourTotal = HOURS.reduce((a, b) => a + b, 0);
   const breaks = BREAKS.map(([a, b]) => [day(a), day(b)]);
 
-  const artists = CATALOG.map((a) => {
+  // the long tail, grouped per artist: each is found at some point after its first release,
+  // played a lot for a while, then only now and then
+  const tail = new Map<string, Release[]>();
+  for (const [artist, album, released, songs] of LONG_TAIL) {
+    if (!tail.has(artist)) tail.set(artist, []);
+    tail.get(artist)!.push({ album, released, tracks: songs.split('|') });
+  }
+  const lastDay = nowDate.getTime() - 20 * 86400000;
+  const all: (Artist & { found?: number; hot?: number })[] = [...CATALOG];
+  for (const [name, releases] of tail) {
+    const first = Math.max(START.getTime(), Math.min(...releases.map((x) => day(x.released))));
+    // half of the older records are already in your library when the history starts
+    const older = Math.min(...releases.map((x) => day(x.released))) < START.getTime();
+    const found = older && r() < 0.5 ? START.getTime() : first + r() * Math.max(0, lastDay - first);
+    all.push({ name, love: 0.3 + r() ** 2 * 1.3, releases, found, hot: 60 + r() * 600 });
+  }
+
+  const artists = all.map((a) => {
     const first = Math.min(...a.releases.map((x) => day(x.released)));
     return {
       ...a,
-      from: Math.max(first, a.since ? day(`${a.since}-01`) : 0),
+      from: Math.max(first, a.since ? day(`${a.since}-01`) : 0, a.found ?? 0),
       phase: r() * Math.PI * 2,
       period: 300 + r() * 900, // days per swing in how much they're played
       releases: a.releases.map((x) => ({ ...x, at: day(x.released), trackW: x.tracks.map((_, i) => 1 / (i + 1) ** 0.7 * (0.6 + r() * 0.8)) })),
@@ -350,6 +501,9 @@ export function generateDemo(): StoredScrobble[] {
       const a = artists[ai];
       if (t0 < a.from) continue;
       const swing = (1.15 + Math.sin((d / a.period) * Math.PI * 2 + a.phase)) ** 2;
+      // long-tail artists: in heavy rotation for a while after you find them, then occasional
+      const sinceFound = a.found !== undefined ? (t0 - a.from) / 86400000 : 0;
+      const rotation = a.found === undefined ? 1 : sinceFound < (a.hot ?? 0) ? 2.6 : 0.25 + 0.8 * Math.exp(-(sinceFound - (a.hot ?? 0)) / 240);
       for (let ri = 0; ri < a.releases.length; ri++) {
         const rel = a.releases[ri];
         if (t0 < rel.at) continue;
@@ -358,7 +512,7 @@ export function generateDemo(): StoredScrobble[] {
         // older records fade to a steady "classic" level
         const fade = 0.35 + 0.65 * Math.exp(-Math.max(0, age) / 900);
         const single = rel.tracks.length === 1 ? 0.35 : 1;
-        albumW.push({ a: ai, r: ri, w: a.love * swing * burst * fade * single });
+        albumW.push({ a: ai, r: ri, w: a.love * swing * burst * fade * single * rotation });
       }
     }
     if (!albumW.length) continue;
