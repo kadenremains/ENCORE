@@ -85,7 +85,7 @@ function corsHeaders(req: Request, env: Env): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -126,6 +126,9 @@ export default {
         case '/admin/stats':
           res = await adminStats(req, env);
           break;
+        case '/blobs/missing':
+          res = req.method === 'POST' ? await blobsMissing(req, env) : json({ error: 'POST only' }, 405);
+          break;
         case '/sync':
           res = req.method === 'POST' ? await sync(req, env) : json({ error: 'POST only' }, 405);
           break;
@@ -133,7 +136,7 @@ export default {
           res = await logout(req, env);
           break;
         default:
-          res = json({ error: 'not found' }, 404);
+          res = url.pathname.startsWith('/blob/') ? await blob(req, url, env) : json({ error: 'not found' }, 404);
       }
     } catch (e) {
       // details go to our logs only; callers get a generic message (no internals leak out)
@@ -316,6 +319,89 @@ async function authPoll(url: URL, env: Env) {
   return json({ token: legacy.token, user: legacy.user });
 }
 
+/* ---------------- picture store ---------------- */
+
+/**
+ * Pictures are stored once per account as encrypted binary (no text encoding), named by a keyed
+ * hash of their content: the same picture in several wrappeds is kept once, and the name says
+ * nothing about what's in it. Wrappeds and custom pictures point at them ("refs").
+ */
+const BLOB_ID = /^b_[A-Za-z0-9_-]{24}$/;
+const BLOB_CHUNK = 1_900_000; // D1 rows top out at 2 MB
+const MAX_BLOB = 25_000_000;
+
+async function haveBlobs(env: Env, user: string, ids: string[]) {
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const row = await env.DB.prepare(`SELECT count(*) AS n FROM blobs WHERE user = ? AND seq = 0 AND id IN (${part.map(() => '?').join(',')})`)
+      .bind(user, ...part)
+      .first<{ n: number }>();
+    if ((row?.n ?? 0) !== part.length) return false;
+  }
+  return true;
+}
+
+async function collectBlobs(env: Env, user: string) {
+  await env.DB.prepare(
+    `DELETE FROM blobs WHERE user = ?1 AND created < ?2 AND id NOT IN (
+       SELECT j.value FROM projects p, json_each(p.refs) j WHERE p.user = ?1 AND p.refs IS NOT NULL
+       UNION SELECT j.value FROM images i, json_each(i.refs) j WHERE i.user = ?1 AND i.refs IS NOT NULL)`,
+  )
+    .bind(user, Date.now() - 3600_000)
+    .run();
+}
+
+/** POST { ids } -> { missing }: which of these pictures this account hasn't uploaded yet. */
+async function blobsMissing(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const body = (await req.json()) as { ids?: unknown };
+  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x): x is string => typeof x === 'string' && BLOB_ID.test(x)))].slice(0, 500) : [];
+  const have = new Set<string>();
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const rows = await env.DB.prepare(`SELECT id FROM blobs WHERE user = ? AND seq = 0 AND id IN (${part.map(() => '?').join(',')})`)
+      .bind(user, ...part)
+      .all<{ id: string }>();
+    rows.results.forEach((r) => have.add(r.id));
+  }
+  return json({ missing: ids.filter((id) => !have.has(id)) });
+}
+
+/** PUT /blob/<id> (raw encrypted bytes) and GET /blob/<id>. */
+async function blob(req: Request, url: URL, env: Env) {
+  const id = url.pathname.slice('/blob/'.length);
+  if (!BLOB_ID.test(id)) return json({ error: 'not found' }, 404);
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  if (req.method === 'GET') {
+    const rows = await env.DB.prepare('SELECT data FROM blobs WHERE user = ? AND id = ? ORDER BY seq').bind(user, id).all<{ data: ArrayBuffer }>();
+    if (!rows.results.length) return json({ error: 'not found' }, 404);
+    const parts = rows.results.map((r) => new Uint8Array(r.data));
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) {
+      out.set(p, o);
+      o += p.length;
+    }
+    // named by content, so it never changes: let the browser keep it
+    return new Response(out, { headers: { 'content-type': 'application/octet-stream', 'cache-control': 'private, max-age=31536000, immutable' } });
+  }
+  if (req.method !== 'PUT') return json({ error: 'GET or PUT' }, 405);
+  // only private (encrypted) accounts use the picture store
+  if (!(await env.DB.prepare('SELECT 1 AS x FROM vault WHERE user = ?').bind(user).first())) return json({ error: 'not private' }, 403);
+  const bytes = new Uint8Array(await req.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_BLOB) return json({ error: 'bad size' }, 413);
+  if (await env.DB.prepare('SELECT 1 AS x FROM blobs WHERE user = ? AND id = ? AND seq = 0').bind(user, id).first()) return json({ ok: true });
+  const now = Date.now();
+  const stmts = [env.DB.prepare('DELETE FROM blobs WHERE user = ? AND id = ?').bind(user, id)];
+  for (let i = 0, seq = 0; i < bytes.length; i += BLOB_CHUNK, seq++) {
+    stmts.push(env.DB.prepare('INSERT INTO blobs (user, id, seq, data, size, created) VALUES (?, ?, ?, ?, ?, ?)').bind(user, id, seq, bytes.subarray(i, i + BLOB_CHUNK), bytes.length, now));
+  }
+  await env.DB.batch(stmts);
+  return json({ ok: true });
+}
+
 /* ---------------- owner stats ---------------- */
 
 /** Everyone who uses Encore: accounts (usage, size, last seen) and usernames looked up without signing in. Owners only. */
@@ -424,8 +510,11 @@ interface ProjectIn {
   data: string | null;
   updated: number;
   deleted: boolean;
+  /** pictures (blob ids) this item uses */
+  refs?: string[];
 }
 interface ImageIn {
+  refs?: string[];
   key: string;
   src: string | null;
   zoom: number;
@@ -465,10 +554,13 @@ async function sync(req: Request, env: Env) {
   const rejected: string[] = [];
 
   // big values are stored in pieces; only write when the incoming version is newer
-  const newer = async (table: 'projects' | 'images', col: 'id' | 'key', key: string, updated: number) => {
-    const row = await env.DB.prepare(`SELECT updated FROM ${table} WHERE user = ? AND ${col} = ?`).bind(user, key).first<{ updated: number }>();
-    return !row || updated > row.updated;
+  const newer = async (table: 'projects' | 'images', col: 'id' | 'key', key: string, updated: number, refs: string[]) => {
+    const row = await env.DB.prepare(`SELECT updated, refs FROM ${table} WHERE user = ? AND ${col} = ?`).bind(user, key).first<{ updated: number; refs: string | null }>();
+    // same version re-sent with its pictures moved to the picture store: take it (one-time conversion)
+    return !row || updated > row.updated || (updated === row.updated && refs.length > 0 && row.refs === null);
   };
+  const cleanRefs = (v: unknown) => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && BLOB_ID.test(x)))].slice(0, 300) : []);
+  let wrote = false;
   const chunkStmts = (kind: string, key: string, value: string | null) => {
     const out = [env.DB.prepare('DELETE FROM chunks WHERE user = ? AND kind = ? AND key = ?').bind(user, kind, key)];
     if (!value || value.length <= CHUNK) return { stored: value, stmts: out };
@@ -484,15 +576,22 @@ async function sync(req: Request, env: Env) {
       rejected.push(`project:${p.id}`);
       continue;
     }
-    if (!(await newer('projects', 'id', p.id, p.updated))) continue;
+    const refs = p.deleted ? [] : cleanRefs(p.refs);
+    if (!(await newer('projects', 'id', p.id, p.updated, refs))) continue;
+    // every picture it points to must already be uploaded, or other devices couldn't open it
+    if (!(await haveBlobs(env, user, refs))) {
+      rejected.push(`project:${p.id}`);
+      continue;
+    }
     const c = chunkStmts('project', p.id, data);
     stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO projects (user, id, data, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ${nextSrv('projects')})
-         ON CONFLICT(user, id) DO UPDATE SET data = excluded.data, updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
-      ).bind(user, p.id, c.stored, p.updated, p.deleted ? 1 : 0, rev(), user),
+        `INSERT INTO projects (user, id, data, updated, deleted, srv, refs) VALUES (?, ?, ?, ?, ?, ${nextSrv('projects')}, ?)
+         ON CONFLICT(user, id) DO UPDATE SET data = excluded.data, updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv, refs = excluded.refs`,
+      ).bind(user, p.id, c.stored, p.updated, p.deleted ? 1 : 0, rev(), user, refs.length ? JSON.stringify(refs) : null),
     );
+    wrote = true;
     flushGroup(data?.length ?? 0);
   }
   for (const im of body.images ?? []) {
@@ -502,15 +601,21 @@ async function sync(req: Request, env: Env) {
       rejected.push(`image:${im.key}`);
       continue;
     }
-    if (!(await newer('images', 'key', im.key, im.updated))) continue;
+    const refs = im.deleted ? [] : cleanRefs(im.refs);
+    if (!(await newer('images', 'key', im.key, im.updated, refs))) continue;
+    if (!(await haveBlobs(env, user, refs))) {
+      rejected.push(`image:${im.key}`);
+      continue;
+    }
+    wrote = true;
     const c = chunkStmts('image', im.key, src);
     stmts.push(...c.stmts);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO images (user, key, src, zoom, x, y, updated, deleted, srv) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nextSrv('images')})
+        `INSERT INTO images (user, key, src, zoom, x, y, updated, deleted, srv, refs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nextSrv('images')}, ?)
          ON CONFLICT(user, key) DO UPDATE SET src = excluded.src, zoom = excluded.zoom, x = excluded.x, y = excluded.y,
-           updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv`,
-      ).bind(user, im.key, c.stored, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev(), user),
+           updated = excluded.updated, deleted = excluded.deleted, srv = excluded.srv, refs = excluded.refs`,
+      ).bind(user, im.key, c.stored, im.zoom ?? 1, im.x ?? 50, im.y ?? 50, im.updated, im.deleted ? 1 : 0, rev(), user, refs.length ? JSON.stringify(refs) : null),
     );
     flushGroup(src?.length ?? 0);
   }
@@ -537,6 +642,8 @@ async function sync(req: Request, env: Env) {
     batchBytes += g.bytes;
   }
   if (batch.length) await env.DB.batch(batch);
+  // pictures nothing points to any more (an hour's grace for ones uploaded just before their item)
+  if (wrote) await collectBlobs(env, user);
 
   // ---- pull everything changed since the client's cursors (a little overlap; client dedupes) ----
   const sent = new Map<string, number>();

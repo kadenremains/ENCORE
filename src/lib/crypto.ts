@@ -141,3 +141,29 @@ export async function openSealed(sealed: string, jwk: JsonWebKey): Promise<strin
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(65, 77) }, aes, b.subarray(77));
   return dec.decode(pt);
 }
+
+/* ---------------- pictures (stored as encrypted binary, once per account) ---------------- */
+
+/** Name for a picture on the server: a keyed hash of its bytes (same picture, same name; reveals nothing). */
+export async function blobId(bytes: Uint8Array<ArrayBuffer>, dk: DataKey): Promise<string> {
+  const sig = await crypto.subtle.sign('HMAC', dk.mac, concat(enc.encode('picture\0'), bytes));
+  return `b_${toB64u(new Uint8Array(sig).subarray(0, 18))}`;
+}
+
+/** [mime length][mime][image bytes], encrypted: iv | ciphertext. */
+export async function sealPicture(mime: string, bytes: Uint8Array, dk: DataKey): Promise<Uint8Array<ArrayBuffer>> {
+  const m = enc.encode(mime);
+  const plain = new Uint8Array(1 + m.length + bytes.length);
+  plain[0] = m.length;
+  plain.set(m, 1);
+  plain.set(bytes, 1 + m.length);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  return concat(iv, new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, dk.aes, plain)));
+}
+
+export async function openPicture(sealed: Uint8Array<ArrayBuffer>, dk: DataKey): Promise<string> {
+  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.subarray(0, 12) }, dk.aes, sealed.subarray(12)));
+  const n = plain[0];
+  const mime = dec.decode(plain.subarray(1, 1 + n));
+  return `data:${mime};base64,${toB64(plain.subarray(1 + n))}`;
+}

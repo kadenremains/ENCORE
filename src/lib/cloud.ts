@@ -3,7 +3,7 @@ import { API_URL } from '../config';
 import { db } from './db';
 import { setChangeListener, tombstones } from './changes';
 import { applyRemoteOverride, applyRemoteRemoval } from './images';
-import { fromB64, hashName, isSealed, loadDataKey, lockDataKey, newDataKey, newSealKeys, open, openSealed, seal, toB64, unlockDataKey, type DataKey } from './crypto';
+import { blobId, fromB64, hashName, isSealed, loadDataKey, lockDataKey, newDataKey, newSealKeys, open, openPicture, openSealed, seal, sealPicture, toB64, unlockDataKey, type DataKey } from './crypto';
 import type { Project } from '../editor/model';
 
 /* ---------------- local storage helpers ---------------- */
@@ -397,8 +397,10 @@ interface RemoteProject {
   data: string | null;
   updated: number;
   deleted: boolean;
+  refs?: string[];
 }
 interface RemoteImage {
+  refs?: string[];
   key: string;
   src: string | null;
   zoom: number;
@@ -469,6 +471,79 @@ async function post(token: string, body: unknown): Promise<SyncResponse> {
   return r.json();
 }
 
+/* ---------------- picture store ---------------- */
+
+/**
+ * Pictures travel separately from the wrapped / custom picture that uses them: as raw encrypted
+ * bytes (a third smaller than the text form) and once per account, however many places use them.
+ * On this device nothing changes: wrappeds and pictures keep their pictures inline.
+ */
+const DATA_URL = /data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=]+)/g;
+const PICTURE_REF = /encore-blob:(b_[A-Za-z0-9_-]{24})/g;
+interface Picture {
+  mime: string;
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
+/** Swap every embedded picture for a reference; collects the pictures in `out`. */
+async function liftPictures(text: string, dk: DataKey, out: Map<string, Picture>): Promise<{ text: string; refs: string[] }> {
+  const parts: string[] = [];
+  const refs = new Set<string>();
+  let last = 0;
+  for (const m of text.matchAll(DATA_URL)) {
+    const bytes = fromB64(m[2]);
+    const id = await blobId(bytes, dk);
+    out.set(id, { mime: m[1], bytes });
+    refs.add(id);
+    parts.push(text.slice(last, m.index), `encore-blob:${id}`);
+    last = m.index! + m[0].length;
+  }
+  parts.push(text.slice(last));
+  return { text: parts.join(''), refs: [...refs] };
+}
+
+/** Upload the pictures the server doesn't have yet (a few at a time). */
+async function uploadPictures(token: string, pics: Map<string, Picture>, dk: DataKey) {
+  const ids = [...pics.keys()];
+  for (let i = 0; i < ids.length; i += 400) {
+    const { missing } = await api<{ missing: string[] }>(token, '/blobs/missing', { ids: ids.slice(i, i + 400) });
+    let next = 0;
+    const worker = async () => {
+      while (next < missing.length) {
+        const id = missing[next++];
+        const p = pics.get(id)!;
+        const r = await fetch(`${API_URL}/blob/${id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+          body: await sealPicture(p.mime, p.bytes, dk),
+        });
+        if (!r.ok) throw new Error(`Picture upload failed (${r.status})`);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  }
+}
+
+/** Put the real pictures back into a downloaded wrapped / custom picture. */
+async function restorePictures(text: string, token: string, dk: DataKey, cache: Map<string, Promise<string>>): Promise<string> {
+  const ids = [...new Set([...text.matchAll(PICTURE_REF)].map((m) => m[1]))];
+  if (!ids.length) return text;
+  const urls = new Map<string, string>();
+  for (const id of ids) {
+    let p = cache.get(id);
+    if (!p) {
+      p = (async () => {
+        const r = await fetch(`${API_URL}/blob/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error(`Picture download failed (${r.status})`);
+        return openPicture(new Uint8Array(await r.arrayBuffer()), dk);
+      })();
+      cache.set(id, p);
+    }
+    urls.set(id, await p);
+  }
+  return text.replace(PICTURE_REF, (_, id: string) => urls.get(id)!);
+}
+
 /** Server names of pictures -> their real names (hashed names can't be turned back otherwise). */
 async function pictureNames(dk: DataKey): Promise<Map<string, string>> {
   const names = new Set<string>((await db.overrides.toCollection().primaryKeys()) as string[]);
@@ -503,18 +578,22 @@ async function doSync() {
 
     // ---- gather local changes since the last successful push, encrypted ----
     const retry = rejectedKeys();
+    const pics = new Map<string, Picture>();
     const projects: RemoteProject[] = [];
     for (const p of await db.projects.toArray()) {
       if (!(p.updated > pushedAt || retry.has(`project:${p.id}`))) continue;
-      projects.push({ id: p.id, data: await seal(JSON.stringify(p), dk), updated: p.updated, deleted: false });
+      const lifted = await liftPictures(JSON.stringify(p), dk, pics);
+      projects.push({ id: p.id, data: await seal(lifted.text, dk), updated: p.updated, deleted: false, refs: lifted.refs });
     }
     const images: RemoteImage[] = [];
     for (const o of await db.overrides.toArray()) {
       const key = await nameFor(o.key);
       if (!(o.updated > pushedAt || retry.has(`image:${key}`))) continue;
-      const src = await seal(JSON.stringify({ key: o.key, src: o.src, zoom: o.zoom, x: o.x, y: o.y }), dk);
-      images.push({ key, src, zoom: 1, x: 50, y: 50, updated: o.updated, deleted: false });
+      const lifted = await liftPictures(JSON.stringify({ key: o.key, src: o.src, zoom: o.zoom, x: o.x, y: o.y }), dk, pics);
+      images.push({ key, src: await seal(lifted.text, dk), zoom: 1, x: 50, y: 50, updated: o.updated, deleted: false, refs: lifted.refs });
     }
+    // the pictures go up first: the server only accepts items whose pictures it already has
+    await uploadPictures(token, pics, dk);
     for (const [k, at] of Object.entries(tombstones())) {
       if (at <= pushedAt) continue;
       const i = k.indexOf(':');
@@ -549,12 +628,12 @@ async function doSync() {
     for (let b = 0; b < batches.length; b++) {
       res = await post(token, { cursor, ...batches[b], settings: b === 0 ? settings : null });
       rejected.push(...res.rejected);
-      await applyRemote(res, dk, names);
+      await applyRemote(res, dk, names, token);
       cursor = res.cursor;
     }
     while (res?.more) {
       res = await post(token, { cursor });
-      await applyRemote(res, dk, names);
+      await applyRemote(res, dk, names, token);
       cursor = res.cursor;
     }
 
@@ -588,16 +667,24 @@ async function describeRejected(keys: string[], sizes: Map<string, number>) {
       names.push(`“${p?.name ?? 'a wrapped'}” (${mb(sizes.get(k) ?? 0)})`);
     } else names.push(`a picture (${mb(sizes.get(k) ?? 0)})`);
   }
-  return `Not synced: ${names.join(', ')}. Items that big can't sync. Usually it's a big uploaded picture inside it; re-uploading it will shrink it.`;
+  const big = keys.some((k) => (sizes.get(k) ?? 0) > 1_500_000);
+  return big
+    ? `Not synced: ${names.join(', ')}. Items that big can't sync. Usually it's a big uploaded picture inside it; re-uploading it will shrink it.`
+    : `Not synced yet: ${names.join(', ')}. Trying again on the next sync.`;
 }
 
 /**
  * Apply what the server sent. With a data key, only encrypted values are accepted; without one
  * (`dk` null) this is the one-time download of what an account synced before private sync.
  */
-async function applyRemote(res: SyncResponse, dk: DataKey | null, names?: Map<string, string>) {
+async function applyRemote(res: SyncResponse, dk: DataKey | null, names?: Map<string, string>, token?: string) {
+  const pictures = new Map<string, Promise<string>>();
   const read = async (v: string): Promise<string | null> => {
-    if (dk) return isSealed(v) ? open(v, dk) : null;
+    if (dk) {
+      if (!isSealed(v)) return null;
+      const text = await open(v, dk);
+      return token ? restorePictures(text, token, dk, pictures) : text;
+    }
     return isSealed(v) ? null : v;
   };
   let changed = false;
@@ -674,7 +761,7 @@ export function forceFullSync() {
 
 let started = false;
 /** Bump to make every signed-in device re-upload and re-download everything once. */
-const SYNC_VERSION = '3';
+const SYNC_VERSION = '4'; // 4: pictures move to the picture store (one full re-upload)
 
 export function initCloud(h: Hooks) {
   hooks = h;

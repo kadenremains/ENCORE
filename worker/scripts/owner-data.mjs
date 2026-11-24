@@ -48,7 +48,21 @@ async function read(value, kind, id) {
   const b = Buffer.from(value.slice(4), 'base64');
   let pt = Buffer.from(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12)));
   if (value[3] === 'z') pt = gunzipSync(pt);
-  return pt.toString('utf8');
+  // pictures live in the picture store: put them back in
+  let text = pt.toString('utf8');
+  for (const id of new Set([...text.matchAll(/encore-blob:(b_[A-Za-z0-9_-]{24})/g)].map((m) => m[1]))) text = text.split(`encore-blob:${id}`).join(await picture(id));
+  return text;
+}
+
+const pictureCache = new Map();
+async function picture(id) {
+  if (pictureCache.has(id)) return pictureCache.get(id);
+  const sealed = Buffer.concat(query(`SELECT hex(data) AS h FROM blobs WHERE user = ${q(user)} AND id = ${q(id)} ORDER BY seq`).map((r) => Buffer.from(r.h, 'hex')));
+  const plain = Buffer.from(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.subarray(0, 12) }, key, sealed.subarray(12)));
+  const mime = plain.subarray(1, 1 + plain[0]).toString('utf8');
+  const url = `data:${mime};base64,${plain.subarray(1 + plain[0]).toString('base64')}`;
+  pictureCache.set(id, url);
+  return url;
 }
 
 const outDir = join(root, '.owner-data', user);

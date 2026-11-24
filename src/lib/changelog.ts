@@ -12,6 +12,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.3',
+    date: '2026-11-24',
+    title: 'Lighter sync, same pictures',
+    notes: [
+      { text: 'Synced pictures take about a quarter less space, and a picture used in several wrappeds is uploaded once. Picture quality is exactly the same.' },
+      { text: 'Pictures you’ve already downloaded are remembered by your browser, so syncing a new device is quicker.' },
+      { text: 'Picture store: encrypted pictures as binary in a blobs table, once per account, named by a keyed hash of their content; items list their refs and are refused until every picture is uploaded; unreferenced pictures are cleaned up after an hour.', owner: true },
+      { text: 'owner-data.mjs reads pictures from the picture store; schema.sql now describes a complete fresh database.', owner: true },
+    ],
+  },
+  {
     version: '2.2',
     date: '2026-11-24',
     title: 'Pick your look, and a much bigger demo',
