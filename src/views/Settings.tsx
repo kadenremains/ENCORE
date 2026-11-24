@@ -180,16 +180,7 @@ function AccountTab() {
         }
         right={cloud.token ? <span className="muted small">{cloud.status === 'syncing' ? 'syncing…' : `synced ${ago(cloud.lastSync)}`}</span> : undefined}
       >
-        {cloud.token && cloud.privacy === 'needs-signin' ? (
-          <>
-            <p className="sync-status">
-              <span className="cloud-dot dirty" /> Paused: sign in once more to switch on private sync.
-            </p>
-            <button className="btn primary" onClick={startSignIn}>
-              Sign in with Last.fm
-            </button>
-          </>
-        ) : cloud.token && cloud.privacy === 'setup' ? (
+        {cloud.token && cloud.privacy === 'setup' ? (
           <p className="sync-status">
             <span className="cloud-dot busy" /> Setting up private sync…
           </p>

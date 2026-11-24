@@ -65,10 +65,9 @@ function loadAuth(): { token: string | null; user: string | null } {
  * Private sync status:
  *  - ready: this device holds the account's data key; sync runs
  *  - setup: unlocking or creating the key right after sign-in
- *  - needs-signin: signed in from before private sync existed; signing in again unlocks it
  *  - locked: the key on the server couldn't be opened (see error)
  */
-export type Privacy = 'ready' | 'setup' | 'needs-signin' | 'locked';
+export type Privacy = 'ready' | 'setup' | 'locked';
 
 export interface CloudState {
   token: string | null;
@@ -351,7 +350,9 @@ function adoptSession(token: string, user: string, sessionKey?: string) {
     if (sessionKey) await setupKey(token, user, sessionKey);
     else {
       dataKey = dataKey ?? (await loadLocalKey(user));
-      useCloud.setState({ privacy: dataKey ? 'ready' : 'needs-signin' });
+      // no key and no way to unlock one: treat it as signed out, so signing in sets it up
+      if (!dataKey) return void signOut();
+      useCloud.setState({ privacy: 'ready' });
     }
     if (dataKey) void syncNow();
   };
@@ -480,10 +481,7 @@ async function pictureNames(dk: DataKey): Promise<Map<string, string>> {
 async function doSync() {
   const { token, user } = useCloud.getState();
   if (!token || !API_URL || !user) return;
-  if (!dataKey) {
-    if (useCloud.getState().privacy === null) useCloud.setState({ privacy: 'needs-signin' });
-    return;
-  }
+  if (!dataKey) return; // still being set up right after sign-in
   const dk = dataKey;
   useCloud.setState({ status: 'syncing', error: null });
   const seqAtStart = changeSeq;
@@ -725,7 +723,9 @@ export function initCloud(h: Hooks) {
     if (token)
       void loadLocalKey(user).then((dk) => {
         dataKey = dataKey ?? dk;
-        useCloud.setState({ privacy: dataKey ? 'ready' : 'needs-signin' });
+        // signed in from before private sync: sign out, so the next sign-in sets it up
+        if (!dataKey) return void signOut();
+        useCloud.setState({ privacy: 'ready' });
         if (dataKey) {
           void syncNow();
           void checkOwner();
