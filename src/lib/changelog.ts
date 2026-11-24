@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.6.3',
+    date: '2026-11-24',
+    title: 'Last.fm links open in Safari',
+    notes: [
+      { text: 'In the iPhone home-screen app, Last.fm links (Clean up, your profile) now open in Safari, where you’re logged in, so you can edit scrobbles straight away. The app’s own little browser can’t log in to Last.fm.' },
+    ],
+  },
+  {
     version: '2.6.2',
     date: '2026-11-24',
     title: 'Garbled names, pointed out',

@@ -23,8 +23,10 @@ import App from './App.tsx';
 import { installScrollToTopOnLinks } from './router';
 import { applyAppearance, getPrefs, usePrefs } from './lib/prefs';
 import { initLook } from './lib/look';
+import { installLastfmLinksInSafari } from './lib/cloud';
 
 installScrollToTopOnLinks();
+installLastfmLinksInSafari();
 
 // Settings → Stats → start page (only when opening the app at its front page)
 if (!location.hash || location.hash === '#/' || location.hash === '#') {

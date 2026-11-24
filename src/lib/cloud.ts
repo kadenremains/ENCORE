@@ -243,6 +243,42 @@ function isStandalone() {
 }
 
 /**
+ * In the iPhone home-screen app, links open in the app's own little browser, where you aren't
+ * logged in to Last.fm and Last.fm's login fails. Send Last.fm links to Safari instead (where
+ * you're usually logged in, so editing scrobbles works). If Safari doesn't take it (older iOS),
+ * the link opens the usual way.
+ */
+export function installLastfmLinksInSafari() {
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (e.defaultPrevented || e.button !== 0 || !isIOS() || !isStandalone()) return;
+      const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a) return;
+      let url: URL;
+      try {
+        url = new URL(a.href);
+      } catch {
+        return;
+      }
+      if (url.protocol !== 'https:' || !/^(www\.)?last\.fm$/.test(url.hostname)) return;
+      e.preventDefault();
+      let left = false;
+      const onHide = () => {
+        if (document.visibilityState === 'hidden') left = true;
+      };
+      document.addEventListener('visibilitychange', onHide);
+      location.href = `x-safari-${url.href}`;
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', onHide);
+        if (!left && document.visibilityState === 'visible') window.open(url.href, '_blank', 'noreferrer');
+      }, 1200);
+    },
+    true,
+  );
+}
+
+/**
  * Start "Sign in with Last.fm". The app also registers a random pickup id and polls for the
  * session, so it gets signed in even if Last.fm's approval happens in a different browser view
  * (iOS opens links from home-screen apps in a separate view).
