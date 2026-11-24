@@ -265,7 +265,7 @@ export function Punchcard({ matrix }: { matrix: number[][] }) {
  * Plays over all time, one point per month or per week. The shaded part is the buckets the
  * selected range touches.
  */
-export function AreaSpark({ data, unit = 'month', height = 120, highlight }: { data: { start: Date; value: number }[]; unit?: 'month' | 'week'; height?: number; highlight?: { from: number; to: number } }) {
+export function AreaSpark({ data, unit = 'month', height = 120, highlight }: { data: { start: Date; end?: Date; value: number }[]; unit?: 'month' | 'week'; height?: number; highlight?: { from: number; to: number } }) {
   const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <p className="empty">Not enough history yet.</p>;
   const W = 600;
@@ -288,9 +288,10 @@ export function AreaSpark({ data, unit = 'month', height = 120, highlight }: { d
   }
   const years = data.map((d, i) => ({ i, d })).filter(({ d, i }) => i > 0 && d.start.getFullYear() !== data[i - 1].start.getFullYear());
   const yStep = Math.max(1, Math.ceil(years.length / 8));
-  const tip = (d: { start: Date; value: number }) =>
+  const day = (t: Date, year: boolean) => t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}) });
+  const tip = (d: { start: Date; end?: Date; value: number }) =>
     unit === 'week'
-      ? `Week of ${d.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · ${fmtNum(d.value)} plays`
+      ? `${d.end ? `${day(d.start, d.start.getFullYear() !== d.end.getFullYear())} – ${day(d.end, true)}` : `Week of ${day(d.start, true)}`} · ${fmtNum(d.value)} plays`
       : `${d.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · ${fmtNum(d.value)} plays`;
   return (
     <div className="spark">

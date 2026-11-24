@@ -810,23 +810,34 @@ export function entityAllTime(lib: Library, kind: EntityKind, idx: number): Enti
   });
 }
 
-/** One entity's plays per week (Monday start) from its first week to this week. */
-export function entityAllTimeWeeks(lib: Library, kind: EntityKind, idx: number): { start: Date; value: number }[] {
-  return ememo(`ew:${lib.version}:${kind}:${idx}`, () => {
+/** Local day number (days since the epoch, in local time) of a unix timestamp; same numbering as Library.day. */
+export function localDay(tsSec: number) {
+  const d = new Date(tsSec * 1000);
+  return Math.floor((tsSec * 1000 - d.getTimezoneOffset() * 60000) / 86400000);
+}
+
+/**
+ * One entity's plays in 7-day buckets from its first play to today. The buckets are lined up on
+ * `anchorDay` (a local day number, usually the first day of the selected range), so the range
+ * starts exactly on a bucket.
+ */
+export function entityAllTimeWeeks(lib: Library, kind: EntityKind, idx: number, anchorDay: number): { start: Date; end: Date; value: number }[] {
+  const phase = ((anchorDay % 7) + 7) % 7;
+  return ememo(`ew:${lib.version}:${kind}:${idx}:${phase}`, () => {
     const col = columnOf(lib, kind);
-    const weekStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    const bucket = (day: number) => Math.floor((day - phase) / 7);
     const counts = new Map<number, number>();
-    let first: Date | null = null;
+    let first: number | null = null;
     for (let i = 0; i < lib.n; i++) {
       if (col[i] !== idx) continue;
-      const w = weekStart(dayToDate(lib.day[i]));
-      if (!first) first = w;
-      counts.set(w.getTime(), (counts.get(w.getTime()) ?? 0) + 1);
+      const k = bucket(lib.day[i]);
+      if (first === null) first = k;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    const out: { start: Date; value: number }[] = [];
-    if (!first) return out;
-    const end = weekStart(new Date());
-    for (let w = first; w <= end; w = new Date(w.getFullYear(), w.getMonth(), w.getDate() + 7)) out.push({ start: w, value: counts.get(w.getTime()) ?? 0 });
+    const out: { start: Date; end: Date; value: number }[] = [];
+    if (first === null) return out;
+    const last = bucket(localDay(Date.now() / 1000));
+    for (let k = first; k <= last; k++) out.push({ start: dayToDate(k * 7 + phase), end: dayToDate(k * 7 + phase + 6), value: counts.get(k) ?? 0 });
     return out;
   });
 }

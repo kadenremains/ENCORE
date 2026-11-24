@@ -4,7 +4,7 @@ import { KIND_LABEL, fmtPct, pct } from './helpers';
 import { AreaSpark, BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Move, Panel, WEEKDAYS, fmtDate, fmtDay, fmtHour, type LedgerItem } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath, routePath } from '../../router';
-import { dayToDate, entityAllTime, entityAllTimeWeeks, entityRangeStats, findEntity, getStats, type Library } from '../../lib/library';
+import { dayToDate, entityAllTime, entityAllTimeWeeks, entityRangeStats, findEntity, getStats, localDay, type Library } from '../../lib/library';
 import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
@@ -118,7 +118,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       </div>
 
       <Panel title={byWeek ? 'All time, week by week' : 'All time, month by month'} right={<span className="muted small">shaded: {label}</span>}>
-        <AreaSpark data={byWeek ? entityAllTimeWeeks(lib, kind, idx) : at.months.map((m) => ({ start: m.month, value: m.value }))} unit={byWeek ? 'week' : 'month'} highlight={range} />
+        <AreaSpark data={byWeek ? entityAllTimeWeeks(lib, kind, idx, localDay(range.from)) : at.months.map((m) => ({ start: m.month, value: m.value }))} unit={byWeek ? 'week' : 'month'} highlight={range} />
       </Panel>
 
       {kind === 'artist' && <CreditedAlbums artistIdx={idx} name={name} />}
