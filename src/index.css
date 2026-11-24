@@ -4284,26 +4284,3 @@ kbd {
 .onboard-card.handoff p {
   margin: 10px 0;
 }
-
-/* ---------------- Settings → Albums: deluxe editions ---------------- */
-.deluxe-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-}
-.deluxe-list li {
-  padding: 9px 0;
-  border-top: 1px solid var(--line);
-  overflow-wrap: anywhere;
-}
-.deluxe-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 2px;
-}
-.deluxe-head .mini-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}

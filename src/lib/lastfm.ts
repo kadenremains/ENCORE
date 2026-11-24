@@ -218,19 +218,6 @@ export async function fetchAlbumTrackCount(artist: string, album: string, apiKey
   }
 }
 
-/** An album's tracklist per Last.fm, or null when Last.fm doesn't know the album (or has no tracklist). */
-export async function fetchAlbumTracks(artist: string, album: string, apiKey: string): Promise<string[] | null> {
-  try {
-    const r = await call<{ album?: { tracks?: { track?: { name?: string }[] | { name?: string } } } }>({ method: 'album.getinfo', artist, album, autocorrect: 1 }, apiKey);
-    const t = r.album?.tracks?.track;
-    const list = (Array.isArray(t) ? t : t ? [t] : []).map((x) => x?.name ?? '').filter(Boolean);
-    return list.length ? list : null;
-  } catch (e) {
-    if (e instanceof LastfmError && e.code === 6) return null; // "Album not found"
-    throw e;
-  }
-}
-
 /* ---------------- picking up edits made on Last.fm (Pro scrobble editing) ---------------- */
 
 /** All scrobbles in [from, to] (unix seconds, inclusive) straight from Last.fm. */
