@@ -1,4 +1,4 @@
-import { useApp, type AlbumPrefs } from '../store';
+import { sanitizeAlbumPrefs, useApp, type AlbumPrefs } from '../store';
 import type { CompareMode } from './range';
 import type { RangeSpec } from './types';
 import { applyRemotePrefs, getPrefs } from './prefs';
@@ -32,5 +32,16 @@ export function applyAppSettings(raw: unknown) {
     markLookChosen(true); // an account with settings already has its look
   }
   useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });
-  if (d.albums && JSON.stringify(d.albums) !== JSON.stringify(useApp.getState().albumPrefs)) void useApp.getState().setAlbumPrefs(d.albums, { fromSync: true });
+  const albums = sanitizeAlbumPrefs(d.albums);
+  const cur = useApp.getState().albumPrefs;
+  if (!albums || JSON.stringify(albums) === JSON.stringify(cur)) return;
+  // only the "looks fine" list changed: nothing to rebuild
+  if (JSON.stringify({ ...albums, fine: [] }) === JSON.stringify({ ...cur, fine: [] })) {
+    try {
+      localStorage.setItem('sw.albums', JSON.stringify(albums));
+    } catch {
+      /* private mode */
+    }
+    useApp.setState({ albumPrefs: albums });
+  } else void useApp.getState().setAlbumPrefs(albums, { fromSync: true });
 }

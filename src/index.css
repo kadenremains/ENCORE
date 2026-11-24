@@ -4038,3 +4038,168 @@ kbd {
   display: block;
   margin-top: 10px;
 }
+
+/* ---------------- Settings → Clean up (mismatched scrobbles) ---------------- */
+.settings-nav-count {
+  margin-left: auto;
+  font-family: 'JetBrains Mono Variable', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  color: var(--soft);
+}
+.mm-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--panel-2);
+}
+.mm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mm-card {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.mm-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.mm-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mm-name {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-name:hover {
+  text-decoration: underline;
+}
+.mm-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0;
+}
+.mm-var {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 8px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.mm-var:hover {
+  background: var(--panel-2);
+}
+.mm-var.keep {
+  border-color: var(--line-2);
+  background: var(--panel-2);
+}
+.mm-var input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.mm-var-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.mm-var-meta {
+  white-space: nowrap;
+  text-align: right;
+}
+.mm-lfm {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0 4px;
+}
+.mm-lfm:hover {
+  color: var(--accent-2);
+}
+.mm-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 99px;
+  border: 1px solid var(--line-2);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--soft);
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.mm-tag.suggested {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+.mm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mm-actions .btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-foot {
+  margin-top: 12px;
+  text-align: center;
+}
+.mm-merged {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mm-merged li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.mm-merged-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .mm-var {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+  }
+  .mm-var-meta {
+    grid-column: 2;
+    grid-row: 2;
+    text-align: left;
+  }
+  .mm-lfm {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

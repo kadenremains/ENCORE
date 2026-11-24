@@ -19,6 +19,7 @@ import { deliverFiles } from '../lib/share';
 import { buildId, checkForUpdate } from '../lib/updates';
 import { API_URL } from '../config';
 import { SinglesSettings } from './stats/Singles';
+import { CleanupTab, useOpenMismatches } from './Cleanup';
 import { ImagesManager } from './ImagesManager';
 import { MyPictureControls } from '../ui/MyPicture';
 import { SignInWaiting } from '../ui/SignInWaiting';
@@ -27,6 +28,7 @@ const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'account', label: 'Account & sync', icon: '◉', desc: 'Last.fm, devices, API key' },
   { id: 'stats', label: 'Stats', icon: '≡', desc: 'Breaks, comparisons, clock' },
   { id: 'albums', label: 'Albums & singles', icon: '▣', desc: 'One-song releases, album artists' },
+  { id: 'cleanup', label: 'Clean up', icon: '⌥', desc: 'Mismatched scrobbles' },
   { id: 'images', label: 'Images', icon: '◩', desc: 'Artwork and your pictures' },
   { id: 'appearance', label: 'Appearance', icon: '◐', desc: 'Palette, accent, text size' },
   { id: 'data', label: 'Data & storage', icon: '⛁', desc: 'Backups, history, caches' },
@@ -35,7 +37,7 @@ const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'owner', label: 'Owner', icon: '⌘', desc: 'Who uses Encore, and every change' },
 ];
 
-export function Settings({ tab }: { tab: SettingsTab }) {
+export function Settings({ tab, q }: { tab: SettingsTab; q?: string }) {
   const owner = useCloud((s) => s.owner);
   // owners get the Owner tab (stats + the full history); everyone else gets What's new in that slot
   const tabs = TABS.filter((t) => (owner ? t.id !== 'whatsnew' : t.id !== 'owner'));
@@ -56,6 +58,7 @@ export function Settings({ tab }: { tab: SettingsTab }) {
                 {t.icon}
               </span>
               {t.label}
+              {t.id === 'cleanup' && <CleanupCount />}
             </a>
           ))}
         </nav>
@@ -63,6 +66,7 @@ export function Settings({ tab }: { tab: SettingsTab }) {
           {current.id === 'account' && <AccountTab />}
           {current.id === 'stats' && <StatsTab />}
           {current.id === 'albums' && <AlbumsTab />}
+          {current.id === 'cleanup' && <CleanupTab key={q ?? ''} q={q} />}
           {current.id === 'images' && <ImagesTab />}
           {current.id === 'appearance' && <AppearanceTab />}
           {current.id === 'data' && <DataTab />}
@@ -73,6 +77,11 @@ export function Settings({ tab }: { tab: SettingsTab }) {
       </div>
     </div>
   );
+}
+
+function CleanupCount() {
+  const n = useOpenMismatches()?.length;
+  return n ? <span className="settings-nav-count">{n > 999 ? '999+' : n}</span> : null;
 }
 
 /* ------------------------------------------------------------------ building blocks */

@@ -8,6 +8,7 @@ import { dayToDate, entityAllTime, entityAllTimeWeeks, entityRangeStats, findEnt
 import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
+import { MismatchNote } from '../Cleanup';
 import { useApp } from '../../store';
 import { albumKey } from '../../lib/library';
 
@@ -155,6 +156,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
       )}
 
       {kind === 'track' && lib.tracks[idx].single && <SingleNote singleKey={lib.tracks[idx].single!} />}
+      <MismatchNote kind={kind} name={name} artist={artistName} />
 
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>

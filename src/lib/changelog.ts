@@ -12,6 +12,18 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.6',
+    date: '2026-11-24',
+    title: 'Clean up mismatched scrobbles',
+    notes: [
+      { text: 'Settings → Clean up finds songs, albums and artists you’ve scrobbled under different names: a song played from its single and its album, a deluxe edition, “feat.” in the title, a different apostrophe or accent, no album at all.' },
+      { text: 'Merge them to count them as one in Encore (your Last.fm stays as it is), or open them on Last.fm to fix them there. Every merge can be undone, and merges sync to your other devices.' },
+      { text: 'One tap merges every song you also played from its single into its album.' },
+      { text: 'Song, album and artist pages say when they’re split across names, with a link to fix it.' },
+      { text: 'Fixed: changing album settings in the first moments of the demo could briefly show only part of its history.' },
+    ],
+  },
+  {
     version: '2.5.1',
     date: '2026-11-24',
     title: 'Home-screen sign-in goes through Safari',

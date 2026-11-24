@@ -10,6 +10,7 @@ import { consumeAuthRedirect } from './lib/cloud';
 import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
 import { getPrefs } from './lib/prefs';
+import { applyFixes, findMismatches, fineKey, fixesFor, type Fix, type Mismatch } from './lib/mismatches';
 
 function loadJSON<T>(k: string, fallback: T): T {
   try {
@@ -67,6 +68,14 @@ interface AppState {
   adoptUser: (name: string) => Promise<void>;
   albumPrefs: AlbumPrefs;
   setAlbumPrefs: (p: AlbumPrefs, opts?: { fromSync?: boolean }) => Promise<void>;
+  /** mismatched scrobbles (null while they're still being found) */
+  mismatches: Mismatch[] | null;
+  /** merge mismatches in Encore: [mismatch, index of the name to keep] */
+  mergeMismatches: (list: [Mismatch, number][]) => Promise<void>;
+  /** undo merges (by mismatch id), or all of them */
+  undoMerges: (ids: string[] | 'all') => Promise<void>;
+  /** mark mismatches as fine, or bring every one back ('reset') */
+  markFine: (list: Mismatch[] | 'reset') => Promise<void>;
   reloadLibrary: () => Promise<void>;
   /** background: ask Last.fm how many songs one-song albums really have */
   checkSingles: () => Promise<void>;
@@ -125,31 +134,75 @@ function installHints(lib: Library) {
   });
 }
 
-/** Album display preferences (synced): hide one-song releases, and the ones you chose to keep. */
+/**
+ * Album display preferences (synced): hide one-song releases, the ones you chose to keep, and how
+ * you've cleaned up mismatched scrobbles (merges, and the ones you said are fine).
+ */
 export interface AlbumPrefs {
   hideSingles: boolean;
   keep: string[];
+  fixes?: Fix[];
+  fine?: string[];
+}
+
+const isFix = (f: unknown): f is Fix => {
+  const x = f as Fix;
+  return !!x && typeof x === 'object' && ['artist', 'album', 'track', 'song-album'].includes(x.k) && typeof x.from === 'string' && typeof x.to === 'string' && typeof x.g === 'string';
+};
+
+export function sanitizeAlbumPrefs(v: unknown): AlbumPrefs | null {
+  const x = v as AlbumPrefs | null;
+  if (!x || typeof x.hideSingles !== 'boolean' || !Array.isArray(x.keep)) return null;
+  return {
+    hideSingles: x.hideSingles,
+    keep: x.keep.filter((k) => typeof k === 'string'),
+    fixes: Array.isArray(x.fixes) ? x.fixes.filter(isFix) : [],
+    fine: Array.isArray(x.fine) ? x.fine.filter((k) => typeof k === 'string') : [],
+  };
 }
 
 export function loadAlbumPrefs(): AlbumPrefs {
   try {
-    const v = JSON.parse(localStorage.getItem('sw.albums') || 'null');
-    if (v && typeof v.hideSingles === 'boolean' && Array.isArray(v.keep)) return v;
+    const v = sanitizeAlbumPrefs(JSON.parse(localStorage.getItem('sw.albums') || 'null'));
+    if (v) return v;
   } catch {
     /* default */
   }
-  return { hideSingles: true, keep: [] };
+  return { hideSingles: true, keep: [], fixes: [], fine: [] };
+}
+
+/**
+ * Finding mismatches reads the whole history (~0.2 s for 150k plays), so it runs after the library
+ * is on screen, when the browser is idle. A newer load cancels an older one.
+ */
+let mismatchRun = 0;
+function findMismatchesLater(rows: StoredScrobble[]) {
+  const run = ++mismatchRun;
+  const go = () => {
+    if (run !== mismatchRun) return;
+    useApp.setState({ mismatches: findMismatches(rows) });
+  };
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  if (idle) idle(go, { timeout: 2000 });
+  else setTimeout(go, 400);
 }
 
 type TrackCounts = Record<string, [number, number]>; // album key -> [songs on Last.fm or -1, fetched at]
 
+/** The demo while it's still being saved in the background: rebuilds read this, not a half-saved history. */
+let unsavedDemo: StoredScrobble[] | null = null;
+
 async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Library> {
-  const [rows, albumArtists, trackCounts] = await Promise.all([rowsInMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
+  const inMemory = rowsInMemory ?? (unsavedDemo && useApp.getState().demo ? [...unsavedDemo] : null);
+  const [rows, albumArtists, trackCounts] = await Promise.all([inMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
   const prefs = loadAlbumPrefs();
   const counts: Record<string, number> = {};
   for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
-  const lib = buildLibrary(rows, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
+  // your merges from Clean up rename scrobbles here; the stored history stays as Last.fm has it
+  const fixed = applyFixes(rows, prefs.fixes);
+  const lib = buildLibrary(fixed, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   installHints(lib);
+  findMismatchesLater(fixed);
   return lib;
 }
 
@@ -272,13 +325,18 @@ export const useApp = create<AppState>((set, get) => ({
     await setMeta('user', user);
     LS.set('sw.demo', '1');
     // show it straight from memory; saving ~150k scrobbles to storage happens in the background
+    unsavedDemo = rows;
     set({ demo: true, user, lib: await loadLibraryFromDb([...rows]), view: 'app' });
     void (async () => {
-      for (let i = 0; i < rows.length; i += 20000) {
-        if (!get().demo) return; // left the demo meanwhile
-        await db.scrobbles.bulkAdd(rows.slice(i, i + 20000));
+      try {
+        for (let i = 0; i < rows.length; i += 20000) {
+          if (!get().demo) return; // left the demo meanwhile
+          await db.scrobbles.bulkAdd(rows.slice(i, i + 20000));
+        }
+        await setMeta('demoSaved', true);
+      } finally {
+        if (unsavedDemo === rows) unsavedDemo = null;
       }
-      await setMeta('demoSaved', true);
     })();
   },
 
@@ -409,6 +467,36 @@ export const useApp = create<AppState>((set, get) => ({
     await get().reloadLibrary();
   },
 
+  mismatches: null,
+
+  mergeMismatches: async (list) => {
+    const p = get().albumPrefs;
+    const ids = new Set(list.map(([m]) => m.id));
+    // merging again replaces an earlier merge of the same mismatch
+    const keep = (p.fixes ?? []).filter((f) => !ids.has(f.g));
+    set({ mismatches: get().mismatches?.filter((m) => !ids.has(m.id)) ?? null }); // gone straight away; the rebuild confirms it
+    await get().setAlbumPrefs({ ...p, fixes: [...keep, ...list.flatMap(([m, i]) => fixesFor(m, i))] });
+  },
+
+  undoMerges: async (ids) => {
+    const p = get().albumPrefs;
+    const drop = ids === 'all' ? null : new Set(ids);
+    await get().setAlbumPrefs({ ...p, fixes: drop ? (p.fixes ?? []).filter((f) => !drop.has(f.g)) : [] });
+  },
+
+  markFine: async (list) => {
+    const p = get().albumPrefs;
+    const fine = list === 'reset' ? [] : [...new Set([...(p.fine ?? []), ...list.map(fineKey)])];
+    // marking as fine doesn't change any numbers: save and sync without rebuilding
+    try {
+      localStorage.setItem('sw.albums', JSON.stringify({ ...p, fine }));
+    } catch {
+      /* private mode */
+    }
+    set({ albumPrefs: { ...p, fine } });
+    bumpSettings();
+  },
+
   reloadLibrary: async () => {
     if (!get().lib) return;
     set({ lib: await loadLibraryFromDb() });
@@ -513,7 +601,7 @@ export const useApp = create<AppState>((set, get) => ({
     LS.set('sw.demo', '0');
     await db.scrobbles.clear();
     await db.meta.clear();
-    set({ username: '', user: null, lib: null, demo: false, view: 'onboard', sync: null });
+    set({ username: '', user: null, lib: null, mismatches: null, demo: false, view: 'onboard', sync: null });
   },
 
 }));

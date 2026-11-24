@@ -5,6 +5,8 @@ import type { StoredScrobble } from './types';
  * (nothing is played before it came out), so the artwork lookups find the right covers.
  * Taste drifts over the years, new releases get a burst of plays when they drop, there are a
  * couple of long breaks (for "skip breaks") and a few standalone singles (for the singles setting).
+ * Two stretches went through a second scrobbler that names things differently (singles, no album,
+ * straight apostrophes, "feat." credits), so Clean up has real mismatches to show.
  */
 interface Release {
   album: string;
@@ -531,5 +533,38 @@ export function generateDemo(): StoredScrobble[] {
       out.push({ ts, ar: a.name, al: rel.album, tr: rel.tracks[ti] });
     }
   }
+  messUp(out);
   return out.sort((a, b) => a.ts - b.ts);
+}
+
+/** Songs that really came out as singles too (the single exists, so playing it later is fine). */
+const SINGLE_TOO = new Set(['Blinding Lights', 'HUMBLE.', 'The Less I Know the Better', 'Do I Wanna Know?', 'Redbone', 'Good Days', 'Espresso', 'Please Please Please']);
+/** Songs whose full credit includes a featured artist. */
+const FEAT: Record<string, string> = { 'Money Trees': 'Money Trees (feat. Jay Rock)', 'I Feel It Coming': 'I Feel It Coming (feat. Daft Punk)' };
+
+/**
+ * A second scrobbler (a car stereo, then a new phone app) that names things its own way. Only names
+ * change, never dates, and only to names that really exist (real singles, real credits, Born to
+ * Die's Paradise Edition, which came out in Nov 2012).
+ */
+function messUp(out: StoredScrobble[]) {
+  const r = rng(77);
+  const car = [day('2017-03-01') / 1000, day('2018-11-01') / 1000];
+  const app = [day('2021-02-01') / 1000, day('2022-06-01') / 1000];
+  for (const s of out) {
+    if (s.ts >= car[0] && s.ts < car[1]) {
+      if (r() < 0.45) continue;
+      s.tr = s.tr.replace(/\u2019/g, "'");
+      s.al = s.al.replace(/\u2019/g, "'");
+      if (s.ar === 'Beyoncé' && r() < 0.6) s.ar = 'Beyonce';
+      if (s.ar === 'Tyler, The Creator' && r() < 0.5) s.ar = 'Tyler The Creator';
+      if (s.al === 'Born to Die') s.al = 'Born To Die - The Paradise Edition';
+      if (s.tr === 'Go Your Own Way') s.tr = 'Go Your Own Way - 2004 Remaster';
+      if (SINGLE_TOO.has(s.tr) && r() < 0.6) s.al = `${s.tr} - Single`;
+      else if (r() < 0.004) s.al = '';
+    } else if (s.ts >= app[0] && s.ts < app[1]) {
+      if (FEAT[s.tr] && r() < 0.7) s.tr = FEAT[s.tr];
+      if (SINGLE_TOO.has(s.tr) && r() < 0.4) s.al = `${s.tr} - Single`;
+    } else if (SINGLE_TOO.has(s.tr) && r() < 0.04) s.al = `${s.tr} - Single`;
+  }
 }

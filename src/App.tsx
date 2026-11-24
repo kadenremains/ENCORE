@@ -135,7 +135,7 @@ function Main() {
     case 'settings':
       page = (
         <Suspense fallback={loading}>
-          <Settings tab={route.tab} />
+          <Settings tab={route.tab} q={route.q} />
         </Suspense>
       );
       break;

@@ -8,6 +8,7 @@ import type { EntityKind } from '../../lib/types';
 import type { Ranked } from '../../lib/library';
 import { EmptyRange } from './Overview';
 import { SinglesLink } from './Singles';
+import { MismatchLink } from '../Cleanup';
 import { getPrefs } from '../../lib/prefs';
 
 type Sort = 'plays' | 'climbing' | 'falling' | 'new' | 'recent';
@@ -100,6 +101,7 @@ export function TopView({ kind }: { kind: EntityKind }) {
         </button>
       )}
       {kind === 'album' && <SinglesLink />}
+      <MismatchLink kind={kind} />
     </div>
   );
 }

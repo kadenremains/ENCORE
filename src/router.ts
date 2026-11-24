@@ -13,9 +13,9 @@ export type Route =
   | { name: 'records' }
   | { name: 'create' }
   | { name: 'edit'; id: string }
-  | { name: 'settings'; tab: SettingsTab };
+  | { name: 'settings'; tab: SettingsTab; q?: string };
 
-export const SETTINGS_TABS = ['account', 'stats', 'albums', 'images', 'appearance', 'data', 'about', 'whatsnew', 'owner'] as const;
+export const SETTINGS_TABS = ['account', 'stats', 'albums', 'cleanup', 'images', 'appearance', 'data', 'about', 'whatsnew', 'owner'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const enc = encodeURIComponent;
@@ -56,7 +56,7 @@ export function parseRoute(hash: string): Route {
     case 'images': // old link to the Images page
       return { name: 'settings', tab: 'images' };
     case 'settings':
-      return { name: 'settings', tab: (SETTINGS_TABS as readonly string[]).includes(b) ? (b as SettingsTab) : 'account' };
+      return { name: 'settings', tab: (SETTINGS_TABS as readonly string[]).includes(b) ? (b as SettingsTab) : 'account', ...(c ? { q: dec(c) } : {}) };
   }
   return { name: 'overview' };
 }
@@ -78,6 +78,7 @@ export function routePath(r: Route): string {
     case 'edit':
       return `#/edit/${r.id}`;
     case 'settings':
+      if (r.q) return `#/settings/${r.tab}/${enc(r.q)}`;
       return r.tab === 'account' ? '#/settings' : `#/settings/${r.tab}`;
   }
 }
