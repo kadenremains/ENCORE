@@ -168,13 +168,30 @@ function AccountTab() {
 
       <Group
         title="Sync across devices"
-        desc="Signing in with Last.fm backs up your wrappeds, custom pictures and settings, and keeps your phone and computer in step. Your scrobbles always come straight from Last.fm."
+        desc={
+          <>
+            Signing in with Last.fm backs up your wrappeds, custom pictures and settings, and keeps your phone and computer in step. <b>It's private:</b> everything is encrypted on your device before it's uploaded, with a key only your devices can unlock, so Encore's server stores nothing it can read except your username. Your scrobbles always come straight from Last.fm.
+          </>
+        }
         right={cloud.token ? <span className="muted small">{cloud.status === 'syncing' ? 'syncing…' : `synced ${ago(cloud.lastSync)}`}</span> : undefined}
       >
-        {cloud.token ? (
+        {cloud.token && cloud.privacy === 'needs-signin' ? (
           <>
             <p className="sync-status">
-              <span className={`cloud-dot ${cloud.status === 'error' || cloud.error ? 'err' : cloud.dirty ? 'dirty' : 'ok'}`} /> Syncing as <b>{cloud.user}</b>
+              <span className="cloud-dot dirty" /> Paused: sign in once more to switch on private sync.
+            </p>
+            <button className="btn primary" onClick={startSignIn}>
+              Sign in with Last.fm
+            </button>
+          </>
+        ) : cloud.token && cloud.privacy === 'setup' ? (
+          <p className="sync-status">
+            <span className="cloud-dot busy" /> Setting up private sync…
+          </p>
+        ) : cloud.token ? (
+          <>
+            <p className="sync-status">
+              <span className={`cloud-dot ${cloud.status === 'error' || cloud.error || cloud.privacy === 'locked' ? 'err' : cloud.dirty ? 'dirty' : 'ok'}`} /> {cloud.privacy === 'locked' ? 'Locked · signed in as' : 'Syncing privately as'} <b>{cloud.user}</b>
               {cloud.error && <span className="error small"> · {cloud.error}</span>}
             </p>
             <Row label="Sync now" hint="Sync also runs by itself every minute and when you leave the app.">

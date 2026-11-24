@@ -6,6 +6,12 @@ workers_dev = true
 [observability]
 enabled = true
 
+# keep our own console lines (username + counts) but not per-request logs: request URLs carry
+# usernames and album/artist lookups, which we don't want to keep
+[observability.logs]
+enabled = true
+invocation_logs = false
+
 [vars]
 # sites allowed to call the API (localhost is always allowed for development)
 ALLOWED_ORIGINS = "https://kadenremains.github.io"

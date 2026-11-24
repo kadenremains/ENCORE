@@ -8,7 +8,13 @@ import { md5 } from './md5';
  *  - GET  /auth/callback     Last.fm redirects here; we create a session and bounce back to the site
  *  - GET  /auth/poll         a waiting app picks up its session (sign-in finished in another browser view)
  *  - GET  /me                who am I
+ *  - GET/POST /vault         the account's data key, locked with the Last.fm session (we can't open it)
  *  - POST /sync              push local changes, pull remote changes (wrappeds, images, settings)
+
+ * Privacy: synced wrappeds, pictures and settings are encrypted in the browser before upload
+ * ("e1:" values, picture names hashed to "h:" keys). The key that opens them is stored here only
+ * locked with the user's Last.fm session key, which this server passes to the browser at sign-in
+ * and never stores or logs. So the database holds usernames and unreadable data, nothing else.
  *  - POST /logout
  *  - GET/POST /setup         one-time page for saving the Last.fm key + secret
  */
@@ -105,6 +111,9 @@ export default {
         case '/me':
           res = await me(req, env);
           break;
+        case '/vault':
+          res = await vault(req, env);
+          break;
         case '/sync':
           res = req.method === 'POST' ? await sync(req, env) : json({ error: 'POST only' }, 405);
           break;
@@ -159,7 +168,13 @@ async function authStart(url: URL, env: Env) {
   // `pending` lets the app that started sign-in pick the session up itself, even when Last.fm's
   // approval happens in another browser (e.g. iOS opens home-screen apps' links in a separate view)
   const pending = url.searchParams.get('pending');
-  const cb = `${url.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}${pending && /^[0-9a-f]{32}$/.test(pending) ? `&pending=${pending}` : ''}`;
+  const okPending = !!pending && /^[0-9a-f]{32}$/.test(pending);
+  // the waiting app's public key: the session key is sealed to it so only that app can read it
+  const pk = url.searchParams.get('pk') ?? '';
+  if (okPending && /^[A-Za-z0-9_-]{80,100}$/.test(pk)) {
+    await env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, pk, created) VALUES (?, ?, ?)').bind(pending, pk, Date.now()).run();
+  }
+  const cb = `${url.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}${okPending ? `&pending=${pending}` : ''}`;
   return Response.redirect(`https://www.last.fm/api/auth/?api_key=${key}&cb=${encodeURIComponent(cb)}`, 302);
 }
 
@@ -178,9 +193,10 @@ async function authCallback(url: URL, env: Env) {
   const sig = md5(`api_key${key}methodauth.getSessiontoken${token}${secret}`);
   const qs = new URLSearchParams({ method: 'auth.getSession', api_key: key, token, api_sig: sig, format: 'json' });
   const r = await fetch(`${LASTFM}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
-  const body = (await r.json().catch(() => ({}))) as { session?: { name: string }; error?: number; message?: string };
+  const body = (await r.json().catch(() => ({}))) as { session?: { name: string; key: string }; error?: number; message?: string };
   if (!body.session?.name) return Response.redirect(`${redirect}#auth_error=${encodeURIComponent(body.message ?? 'lastfm_rejected')}`, 302);
   const name = body.session.name;
+  const sk = body.session.key ?? ''; // passed on to the browser, never stored
   const now = Date.now();
   const session = randomToken();
   const pending = url.searchParams.get('pending');
@@ -192,21 +208,94 @@ async function authCallback(url: URL, env: Env) {
     // a second session for the app that's waiting (each device context gets its own token)
     const waiting = randomToken();
     stmts.push(env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(waiting, name.toLowerCase(), now, now));
-    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO pending_auth (id, token, user, created) VALUES (?, ?, ?, ?)').bind(pending, waiting, name, now));
+    const row = await env.DB.prepare('SELECT pk FROM auth_pending WHERE id = ?').bind(pending).first<{ pk: string }>();
+    const sealed = row?.pk && sk ? await sealTo(row.pk, sk).catch(() => null) : null;
+    stmts.push(
+      env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, pk, token, user, sealed, created) VALUES (?, ?, ?, ?, ?, ?)').bind(pending, row?.pk ?? null, waiting, name, sealed, now),
+    );
   }
   await env.DB.batch(stmts);
-  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}`, 302);
+  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}${sk ? `&k=${encodeURIComponent(sk)}` : ''}`, 302);
+}
+
+const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+
+/**
+ * Encrypt a secret so only the holder of `pkB64` (a P-256 public key the app made) can read it:
+ * ECDH with a throwaway key, SHA-256 of the shared secret as an AES-GCM key.
+ * Output: throwaway public key (65 bytes) | iv (12) | ciphertext.
+ */
+async function sealTo(pkB64: string, secret: string) {
+  const their = await crypto.subtle.importKey('raw', unb64u(pkB64), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const mine = (await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits'])) as CryptoKeyPair;
+  // (the Workers type definitions spell this field $public; the runtime takes the standard name)
+  const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: their } as unknown as SubtleCryptoDeriveKeyAlgorithm, mine.privateKey, 256);
+  const aes = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', bits), 'AES-GCM', false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(secret)));
+  const pub = new Uint8Array((await crypto.subtle.exportKey('raw', mine.publicKey)) as ArrayBuffer);
+  const out = new Uint8Array(pub.length + iv.length + ct.length);
+  out.set(pub, 0);
+  out.set(iv, pub.length);
+  out.set(ct, pub.length + iv.length);
+  return b64u(out);
 }
 
 /** The app polls this with the random id it started sign-in with; one-time pickup, 15 min window. */
 async function authPoll(url: URL, env: Env) {
   const id = url.searchParams.get('id') ?? '';
   if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
-  const row = await env.DB.prepare('SELECT token, user, created FROM pending_auth WHERE id = ?').bind(id).first<{ token: string; user: string; created: number }>();
-  if (!row) return json({ pending: true });
-  await env.DB.prepare('DELETE FROM pending_auth WHERE id = ? OR created < ?').bind(id, Date.now() - 15 * 60_000).run();
-  if (Date.now() - row.created > 15 * 60_000) return json({ pending: true });
-  return json({ token: row.token, user: row.user });
+  const old = Date.now() - 15 * 60_000;
+  const row = await env.DB.prepare('SELECT token, user, sealed, created FROM auth_pending WHERE id = ? AND token IS NOT NULL').bind(id).first<{ token: string; user: string; sealed: string | null; created: number }>();
+  if (row) {
+    await env.DB.prepare('DELETE FROM auth_pending WHERE id = ? OR created < ?').bind(id, old).run();
+    if (row.created < old) return json({ pending: true });
+    return json({ token: row.token, user: row.user, sealed: row.sealed ?? undefined });
+  }
+  // sign-ins started by an older version of the app
+  const legacy = await env.DB.prepare('SELECT token, user, created FROM pending_auth WHERE id = ?').bind(id).first<{ token: string; user: string; created: number }>();
+  if (!legacy) return json({ pending: true });
+  await env.DB.prepare('DELETE FROM pending_auth WHERE id = ? OR created < ?').bind(id, old).run();
+  if (legacy.created < old) return json({ pending: true });
+  return json({ token: legacy.token, user: legacy.user });
+}
+
+/* ---------------- vault: the account's data key, locked ---------------- */
+
+/**
+ * GET: the locked key (or null). POST { wrapped, kid, mode }:
+ *  - 'create': first device. Stores the key and wipes the user's older unencrypted sync data
+ *    (that device has already downloaded it, and re-uploads it encrypted).
+ *  - 'replace': re-lock the same key (same kid) with a new Last.fm session.
+ */
+async function vault(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const get = () => env.DB.prepare('SELECT wrapped, kid, updated FROM vault WHERE user = ?').bind(user).first<{ wrapped: string; kid: string; updated: number }>();
+  if (req.method === 'GET') return json({ vault: (await get()) ?? null });
+  if (req.method !== 'POST') return json({ error: 'GET or POST' }, 405);
+  const body = (await req.json()) as { wrapped?: string; kid?: string; mode?: string };
+  if (typeof body.wrapped !== 'string' || body.wrapped.length > 400 || typeof body.kid !== 'string' || !/^[0-9a-f]{32}$/.test(body.kid)) return json({ error: 'bad vault' }, 400);
+  const now = Date.now();
+  if (body.mode === 'create') {
+    const existing = await get();
+    if (existing) return json({ vault: existing, created: false });
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO vault (user, wrapped, kid, updated) VALUES (?, ?, ?, ?)').bind(user, body.wrapped, body.kid, now),
+      env.DB.prepare('DELETE FROM projects WHERE user = ?').bind(user),
+      env.DB.prepare('DELETE FROM images WHERE user = ?').bind(user),
+      env.DB.prepare('DELETE FROM settings WHERE user = ?').bind(user),
+      env.DB.prepare('DELETE FROM chunks WHERE user = ?').bind(user),
+    ]);
+    return json({ vault: await get(), created: true });
+  }
+  if (body.mode === 'replace') {
+    const r = await env.DB.prepare('UPDATE vault SET wrapped = ?, updated = ? WHERE user = ? AND kid = ?').bind(body.wrapped, now, user, body.kid).run();
+    if (!r.meta.changes) return json({ error: 'key mismatch' }, 409);
+    return json({ vault: await get() });
+  }
+  return json({ error: 'bad mode' }, 400);
 }
 
 async function userFor(req: Request, env: Env): Promise<string | null> {
@@ -258,6 +347,9 @@ async function sync(req: Request, env: Env) {
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = (await req.json()) as SyncIn;
   const now = Date.now();
+  // with a vault, refuse anything readable (e.g. from an old, not yet updated copy of the app)
+  const locked = !!(await env.DB.prepare('SELECT 1 AS x FROM vault WHERE user = ?').bind(user).first());
+  const sealedOk = (v: string | null) => !locked || v === null || v.startsWith('e1:');
   // Server revision per row, for paging by cursor. It's computed inside the write itself as
   // max(time-based value, current max + 1), so revisions only ever grow in commit order: a slow
   // request can't commit a revision lower than one another device has already paged past.
@@ -289,7 +381,7 @@ async function sync(req: Request, env: Env) {
   for (const p of body.projects ?? []) {
     if (typeof p.id !== 'string' || !p.id || typeof p.updated !== 'number') continue;
     const data = p.deleted ? null : (p.data ?? null);
-    if (data && data.length > MAX_ITEM) {
+    if ((data && data.length > MAX_ITEM) || !sealedOk(data)) {
       rejected.push(`project:${p.id}`);
       continue;
     }
@@ -307,7 +399,7 @@ async function sync(req: Request, env: Env) {
   for (const im of body.images ?? []) {
     if (typeof im.key !== 'string' || !im.key || typeof im.updated !== 'number') continue;
     const src = im.deleted ? null : (im.src ?? null);
-    if (src && src.length > MAX_ITEM) {
+    if ((src && src.length > MAX_ITEM) || !sealedOk(src) || (locked && !im.key.startsWith('h:'))) {
       rejected.push(`image:${im.key}`);
       continue;
     }
@@ -323,7 +415,7 @@ async function sync(req: Request, env: Env) {
     );
     flushGroup(src?.length ?? 0);
   }
-  if (body.settings && typeof body.settings.updated === 'number' && (body.settings.data ?? '').length < 100_000) {
+  if (body.settings && typeof body.settings.updated === 'number' && (body.settings.data ?? '').length < 200_000 && sealedOk(body.settings.data ?? null)) {
     stmts.push(
       env.DB.prepare(
         `INSERT INTO settings (user, data, updated, srv) VALUES (?, ?, ?, ${nextSrv('settings')})

@@ -7,7 +7,7 @@ import { SyncPill } from './SyncPill';
 import { useRangeStats } from './stats/useRangeStats';
 import { dayToDate } from '../lib/library';
 import type { CompareMode } from '../lib/range';
-import { cancelSignIn, pollPending, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, pollPending, startSignIn, syncNow, useCloud } from '../lib/cloud';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -51,7 +51,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
     return () => document.removeEventListener('pointerdown', close);
   }, [menu]);
   const cloud = useCloud();
-  const dot = cloud.token ? (cloud.status === 'syncing' ? 'busy' : cloud.status === 'error' || cloud.error ? 'err' : cloud.dirty ? 'dirty' : 'ok') : '';
+  const dot = cloud.token ? (cloud.status === 'syncing' || cloud.privacy === 'setup' ? 'busy' : cloud.status === 'error' || cloud.error || cloud.privacy === 'locked' ? 'err' : cloud.dirty || cloud.privacy === 'needs-signin' ? 'dirty' : 'ok') : '';
   const [hideErr, setHideErr] = useState<string | null>(null);
   const isChartTab = (r: Route) => (r.name === 'top' || r.name === 'entity');
 
@@ -120,6 +120,14 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           ·{' '}
           <button className="link" onClick={cancelSignIn}>
             Cancel
+          </button>
+        </div>
+      )}
+      {cloud.token && cloud.privacy === 'needs-signin' && !cloud.waiting && (
+        <div className="demo-banner notice">
+          <span className="cloud-dot dirty" /> Sync now keeps your wrappeds and pictures private: they're encrypted so only your devices can read them. Sign in once more to switch it on.{' '}
+          <button className="link" onClick={startSignIn}>
+            Sign in with Last.fm
           </button>
         </div>
       )}
