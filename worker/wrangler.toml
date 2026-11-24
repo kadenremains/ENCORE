@@ -15,6 +15,9 @@ invocation_logs = false
 [vars]
 # sites allowed to call the API (localhost is always allowed for development)
 ALLOWED_ORIGINS = "https://kadenremains.github.io"
+# Last.fm accounts (lowercase) that see the owner stats in Settings and keep their own data key
+# readable on the server (so the owner can read their own synced data). Everyone else stays private.
+OWNERS = "realrx12stoutst"
 
 [[d1_databases]]
 binding = "DB"

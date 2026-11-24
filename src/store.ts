@@ -214,12 +214,14 @@ export const useApp = create<AppState>((set, get) => ({
         set({ username: auth.user, demo: false });
       }
     }
-    await loadImageState();
     const { username, demo } = get();
-    if (!username && !demo) return set({ view: 'onboard' });
-    const user = (await getStoredUser()) ?? null;
-    const lib = await loadLibraryFromDb();
-    set({ user, lib, view: 'app' });
+    if (!username && !demo) {
+      await loadImageState();
+      return set({ view: 'onboard' });
+    }
+    // these don't depend on each other: read them side by side
+    const [, user, lib] = await Promise.all([loadImageState(), getStoredUser(), loadLibraryFromDb()]);
+    set({ user: user ?? null, lib, view: 'app' });
     if (!demo && username) get().runSync();
   },
 

@@ -24,7 +24,16 @@ export interface Env {
   LASTFM_API_KEY?: string;
   LASTFM_SECRET?: string;
   ALLOWED_ORIGINS: string;
+  /** Last.fm usernames (lowercase, comma separated) that can see the owner stats and whose data key is kept readable for the owner */
+  OWNERS?: string;
 }
+
+const isOwner = (user: string, env: Env) =>
+  (env.OWNERS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(user.toLowerCase());
 
 const LASTFM = 'https://ws.audioscrobbler.com/2.0/';
 const READ_METHODS = new Set([
@@ -83,7 +92,7 @@ function corsHeaders(req: Request, env: Env): Record<string, string> {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const cors = corsHeaders(req, env);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
@@ -99,7 +108,7 @@ export default {
         case '/setup':
           return await setup(req, url, env);
         case '/lastfm':
-          res = Object.keys(cors).length ? await lastfmRelay(url, env) : json({ error: 'origin not allowed' }, 403);
+          res = Object.keys(cors).length ? await lastfmRelay(req, url, env, ctx) : json({ error: 'origin not allowed' }, 403);
           break;
         case '/auth/start':
           return await authStart(url, env);
@@ -114,6 +123,9 @@ export default {
         case '/vault':
           res = await vault(req, env);
           break;
+        case '/admin/stats':
+          res = await adminStats(req, env);
+          break;
         case '/sync':
           res = req.method === 'POST' ? await sync(req, env) : json({ error: 'POST only' }, 405);
           break;
@@ -124,8 +136,9 @@ export default {
           res = json({ error: 'not found' }, 404);
       }
     } catch (e) {
+      // details go to our logs only; callers get a generic message (no internals leak out)
       console.error(JSON.stringify({ evt: 'error', path: url.pathname, message: (e as Error).message }));
-      res = json({ error: (e as Error).message || 'server error' }, 500);
+      res = json({ error: 'server error' }, 500);
     }
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) headers.set(k, v);
@@ -135,13 +148,55 @@ export default {
 
 /* ---------------- Last.fm relay ---------------- */
 
-async function lastfmRelay(url: URL, env: Env) {
+/**
+ * Per-IP limit for the relay (in memory, per Worker instance, so it's approximate). Generous
+ * enough for a first full history download; stops someone hammering Last.fm with our key.
+ */
+const buckets = new Map<string, { tokens: number; at: number }>();
+function allow(ip: string, perSec = 12, burst = 120) {
+  const now = Date.now();
+  const b = buckets.get(ip) ?? { tokens: burst, at: now };
+  b.tokens = Math.min(burst, b.tokens + ((now - b.at) / 1000) * perSec);
+  b.at = now;
+  if (b.tokens < 1) {
+    buckets.set(ip, b);
+    return false;
+  }
+  b.tokens -= 1;
+  buckets.set(ip, b);
+  if (buckets.size > 5000) buckets.clear();
+  return true;
+}
+
+/** Usernames looked up without signing in (only the name and when), at most one write per name per 10 min. */
+const seenRecently = new Map<string, number>();
+async function noteVisitor(name: string, env: Env) {
+  const k = name.toLowerCase();
+  const now = Date.now();
+  if ((seenRecently.get(k) ?? 0) > now - 10 * 60_000) return;
+  seenRecently.set(k, now);
+  if (seenRecently.size > 5000) seenRecently.clear();
+  await env.DB.prepare(
+    'INSERT INTO visitors (name, display, first_seen, last_seen, visits) VALUES (?, ?, ?, ?, 1) ON CONFLICT(name) DO UPDATE SET last_seen = excluded.last_seen, display = excluded.display, visits = visitors.visits + 1',
+  )
+    .bind(k, name, now, now)
+    .run();
+}
+
+async function lastfmRelay(req: Request, url: URL, env: Env, ctx?: ExecutionContext) {
   const { key } = await getKeys(env);
   if (!key) return json({ error: 'relay not configured', code: 'NO_KEY' }, 503);
+  if (!allow(req.headers.get('CF-Connecting-IP') ?? 'unknown')) return json({ error: 29, message: 'Rate limit exceeded' }, 429);
   const params = new URLSearchParams(url.search);
   const method = (params.get('method') ?? '').toLowerCase();
   if (!READ_METHODS.has(method)) return json({ error: 'method not allowed' }, 400);
-  params.delete('api_key');
+  // read-only: nothing signed or tied to a session ever goes through here
+  for (const k of ['api_key', 'sk', 'api_sig', 'token']) params.delete(k);
+  const who = params.get('user');
+  if (who && (method === 'user.getinfo' || method === 'user.getrecenttracks') && /^[\w.-]{2,32}$/.test(who)) {
+    const p = noteVisitor(who, env).catch(() => {});
+    if (ctx) ctx.waitUntil(p);
+  }
   params.set('api_key', key);
   params.set('format', 'json');
   const upstream = await fetch(`${LASTFM}?${params}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
@@ -201,7 +256,7 @@ async function authCallback(url: URL, env: Env) {
   const session = randomToken();
   const pending = url.searchParams.get('pending');
   const stmts = [
-    env.DB.prepare('INSERT INTO users (name, display, created) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display').bind(name.toLowerCase(), name, now),
+    env.DB.prepare('INSERT INTO users (name, display, created, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display, last_seen = excluded.last_seen').bind(name.toLowerCase(), name, now, now),
     env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(session, name.toLowerCase(), now, now),
   ];
   if (pending && /^[0-9a-f]{32}$/.test(pending)) {
@@ -261,6 +316,20 @@ async function authPoll(url: URL, env: Env) {
   return json({ token: legacy.token, user: legacy.user });
 }
 
+/* ---------------- owner stats ---------------- */
+
+/** Everyone who uses Encore: accounts (usage, size, last seen) and usernames looked up without signing in. Owners only. */
+async function adminStats(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
+  const [accounts, visitors] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM account_stats ORDER BY last_seen DESC'),
+    env.DB.prepare('SELECT display AS name, first_seen, last_seen, visits FROM visitors ORDER BY last_seen DESC LIMIT 500'),
+  ]);
+  return json({ accounts: accounts.results, visitors: visitors.results, now: Date.now() });
+}
+
 /* ---------------- vault: the account's data key, locked ---------------- */
 
 /**
@@ -272,11 +341,14 @@ async function authPoll(url: URL, env: Env) {
 async function vault(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
+  // (the owner escrow column is never sent back)
   const get = () => env.DB.prepare('SELECT wrapped, kid, updated FROM vault WHERE user = ?').bind(user).first<{ wrapped: string; kid: string; updated: number }>();
   if (req.method === 'GET') return json({ vault: (await get()) ?? null });
   if (req.method !== 'POST') return json({ error: 'GET or POST' }, 405);
   const body = (await req.json()) as { wrapped?: string; kid?: string; mode?: string };
-  if (typeof body.wrapped !== 'string' || body.wrapped.length > 400 || typeof body.kid !== 'string' || !/^[0-9a-f]{32}$/.test(body.kid)) return json({ error: 'bad vault' }, 400);
+  if (body.mode !== 'escrow' && (typeof body.wrapped !== 'string' || body.wrapped.length > 400)) return json({ error: 'bad vault' }, 400);
+  if (typeof body.kid !== 'string' || !/^[0-9a-f]{32}$/.test(body.kid)) return json({ error: 'bad vault' }, 400);
+  if (body.mode === 'escrow' && typeof (body as { key?: string }).key !== 'string') return json({ error: 'bad vault' }, 400);
   const now = Date.now();
   if (body.mode === 'create') {
     const existing = await get();
@@ -290,6 +362,16 @@ async function vault(req: Request, env: Env) {
     ]);
     return json({ vault: await get(), created: true });
   }
+  if (body.mode === 'escrow') {
+    // owners only: keep the data key readable here so the owner (and their tools) can read their own data
+    if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
+    const key = (body as { key?: string }).key ?? '';
+    const raw = Uint8Array.from(atob(key), (c) => c.charCodeAt(0));
+    const kid = [...new Uint8Array(await crypto.subtle.digest('SHA-256', raw))].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+    if (raw.length !== 32 || kid !== body.kid) return json({ error: 'key mismatch' }, 409);
+    const r = await env.DB.prepare('UPDATE vault SET escrow = ? WHERE user = ? AND kid = ?').bind(key, user, kid).run();
+    return r.meta.changes ? json({ ok: true }) : json({ error: 'key mismatch' }, 409);
+  }
   if (body.mode === 'replace') {
     const r = await env.DB.prepare('UPDATE vault SET wrapped = ?, updated = ? WHERE user = ? AND kid = ?').bind(body.wrapped, now, user, body.kid).run();
     if (!r.meta.changes) return json({ error: 'key mismatch' }, 409);
@@ -298,18 +380,35 @@ async function vault(req: Request, env: Env) {
   return json({ error: 'bad mode' }, 400);
 }
 
+const SESSION_IDLE = 180 * 86400_000; // a device unused for 6 months has to sign in again
+const TOUCH_EVERY = 15 * 60_000;
+
 async function userFor(req: Request, env: Env): Promise<string | null> {
   const m = (req.headers.get('Authorization') ?? '').match(/^Bearer ([0-9a-f]{64})$/);
   if (!m) return null;
-  const row = await env.DB.prepare('SELECT user FROM sessions WHERE token = ?').bind(m[1]).first<{ user: string }>();
-  return row?.user ?? null;
+  const row = await env.DB.prepare('SELECT user, created, last_seen FROM sessions WHERE token = ?').bind(m[1]).first<{ user: string; created: number; last_seen: number }>();
+  if (!row) return null;
+  const now = Date.now();
+  const last = Math.max(row.last_seen ?? 0, row.created ?? 0);
+  if (last < now - SESSION_IDLE) {
+    await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(m[1]).run();
+    return null;
+  }
+  // "last used" for the owner stats, written at most every 15 minutes per device
+  if ((row.last_seen ?? 0) < now - TOUCH_EVERY) {
+    await env.DB.batch([
+      env.DB.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?').bind(now, m[1]),
+      env.DB.prepare('UPDATE users SET last_seen = ? WHERE name = ?').bind(now, row.user),
+    ]);
+  }
+  return row.user;
 }
 
 async function me(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
   const row = await env.DB.prepare('SELECT display FROM users WHERE name = ?').bind(user).first<{ display: string }>();
-  return json({ name: row?.display ?? user });
+  return json({ name: row?.display ?? user, owner: isOwner(user, env) });
 }
 
 async function logout(req: Request, env: Env) {

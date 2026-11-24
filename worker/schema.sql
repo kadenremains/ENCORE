@@ -18,3 +18,19 @@ CREATE TABLE IF NOT EXISTS pending_auth (id TEXT PRIMARY KEY, token TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS chunks (user TEXT NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (user, kind, key, seq));
 CREATE TABLE IF NOT EXISTS vault (user TEXT PRIMARY KEY, wrapped TEXT NOT NULL, kid TEXT NOT NULL, updated INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS auth_pending (id TEXT PRIMARY KEY, pk TEXT, token TEXT, user TEXT, sealed TEXT, created INTEGER NOT NULL);
+-- owner stats (usernames, sizes and last-used times only)
+CREATE TABLE IF NOT EXISTS visitors (name TEXT PRIMARY KEY, display TEXT, first_seen INTEGER, last_seen INTEGER, visits INTEGER NOT NULL DEFAULT 0);
+-- run once on existing databases: ALTER TABLE users ADD COLUMN last_seen INTEGER; ALTER TABLE vault ADD COLUMN escrow TEXT;
+CREATE VIEW IF NOT EXISTS account_stats AS
+SELECT u.display AS account,
+  u.created AS joined,
+  u.last_seen AS last_seen,
+  (SELECT count(*) FROM sessions s WHERE s.user = u.name) AS devices,
+  EXISTS (SELECT 1 FROM vault v WHERE v.user = u.name) AS private,
+  (SELECT count(*) FROM projects p WHERE p.user = u.name AND p.deleted = 0) AS wrappeds,
+  (SELECT count(*) FROM images i WHERE i.user = u.name AND i.deleted = 0) AS pictures,
+  COALESCE((SELECT sum(length(p.data)) FROM projects p WHERE p.user = u.name), 0)
+    + COALESCE((SELECT sum(length(i.src)) FROM images i WHERE i.user = u.name), 0)
+    + COALESCE((SELECT sum(length(c.data)) FROM chunks c WHERE c.user = u.name), 0)
+    + COALESCE((SELECT length(st.data) FROM settings st WHERE st.user = u.name), 0) AS bytes
+FROM users u;

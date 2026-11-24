@@ -15,7 +15,7 @@ export type Route =
   | { name: 'edit'; id: string }
   | { name: 'settings'; tab: SettingsTab };
 
-export const SETTINGS_TABS = ['account', 'stats', 'albums', 'images', 'appearance', 'data', 'about'] as const;
+export const SETTINGS_TABS = ['account', 'stats', 'albums', 'images', 'appearance', 'data', 'about', 'owner'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const enc = encodeURIComponent;

@@ -9,7 +9,7 @@ import { GAP_OPTIONS, type CompareMode } from '../lib/range';
 import { useRangeStats } from './stats/useRangeStats';
 import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../lib/prefs';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
-import { cancelSignIn, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud } from '../lib/cloud';
+import { cancelSignIn, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
@@ -28,10 +28,14 @@ const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'appearance', label: 'Appearance', icon: '◐', desc: 'Palette, accent, text size' },
   { id: 'data', label: 'Data & storage', icon: '⛁', desc: 'Backups, history, caches' },
   { id: 'about', label: 'About', icon: 'ⓘ', desc: 'Version, sources, shortcuts' },
+  { id: 'owner', label: 'Owner', icon: '⌘', desc: 'Who uses Encore' },
 ];
 
 export function Settings({ tab }: { tab: SettingsTab }) {
-  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const owner = useCloud((s) => s.owner);
+  // the Owner tab only exists for owner accounts (the server checks too)
+  const tabs = owner ? TABS : TABS.filter((t) => t.id !== 'owner');
+  const current = tabs.find((t) => t.id === tab) ?? tabs[0];
   return (
     <div className="page settings">
       <div className="page-head">
@@ -42,7 +46,7 @@ export function Settings({ tab }: { tab: SettingsTab }) {
       </div>
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Settings sections">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <a key={t.id} href={routePath({ name: 'settings', tab: t.id })} aria-current={t.id === current.id ? 'page' : undefined}>
               <span className="settings-nav-icon" aria-hidden>
                 {t.icon}
@@ -59,6 +63,7 @@ export function Settings({ tab }: { tab: SettingsTab }) {
           {current.id === 'appearance' && <AppearanceTab />}
           {current.id === 'data' && <DataTab />}
           {current.id === 'about' && <AboutTab />}
+          {current.id === 'owner' && <OwnerTab />}
         </div>
       </div>
     </div>
@@ -806,6 +811,128 @@ function AboutTab() {
           </a>
         </p>
       </Group>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ owner */
+
+function OwnerTab() {
+  const [data, setData] = useState<AdminStats | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let live = true;
+    fetchAdminStats()
+      .then((d) => live && setData(d))
+      .catch((e) => live && setErr((e as Error).message));
+    return () => {
+      live = false;
+    };
+  }, [n]);
+  const size = (b: number) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : b > 1e3 ? `${Math.round(b / 1e3)} KB` : `${b} B`);
+  const when = (t: number | null) => (t ? ago(t) : '—');
+  const total = data?.accounts.reduce((s, a) => s + a.bytes, 0) ?? 0;
+  return (
+    <>
+      <Group
+        title="Signed-in accounts"
+        desc="Everyone who signed in with Last.fm to sync. Size is what they store on the server (encrypted for private accounts). Only usernames and these numbers are visible here."
+        right={
+          <button className="btn" onClick={() => setN(n + 1)}>
+            Refresh
+          </button>
+        }
+      >
+        {err && <p className="error small">{err}</p>}
+        {!data && !err && <p className="muted small">Loading…</p>}
+        {data && (
+          <>
+            <div className="data-stats">
+              <div>
+                <b>{fmtNum(data.accounts.length)}</b>
+                <span>accounts</span>
+              </div>
+              <div>
+                <b>{fmtNum(data.accounts.filter((a) => a.last_seen && data.now - a.last_seen < 7 * 86400_000).length)}</b>
+                <span>active this week</span>
+              </div>
+              <div>
+                <b>{size(total)}</b>
+                <span>stored in total</span>
+              </div>
+              <div>
+                <b>{fmtNum(data.visitors.length)}</b>
+                <span>profiles looked up</span>
+              </div>
+            </div>
+            <div className="owner-table-wrap">
+              <table className="owner-table">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Last used</th>
+                    <th>Stored</th>
+                    <th>Wrappeds</th>
+                    <th>Pictures</th>
+                    <th>Devices</th>
+                    <th>Private</th>
+                    <th>Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.accounts.map((a) => (
+                    <tr key={a.account}>
+                      <td>
+                        <a href={`https://www.last.fm/user/${encodeURIComponent(a.account)}`} target="_blank" rel="noreferrer">
+                          {a.account}
+                        </a>
+                      </td>
+                      <td>{when(a.last_seen)}</td>
+                      <td>{size(a.bytes)}</td>
+                      <td>{fmtNum(a.wrappeds)}</td>
+                      <td>{fmtNum(a.pictures)}</td>
+                      <td>{fmtNum(a.devices)}</td>
+                      <td>{a.private ? 'yes' : 'not yet'}</td>
+                      <td>{when(a.joined)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Group>
+      {data && (
+        <Group title="Looked up without signing in" desc="Last.fm usernames whose history was downloaded through Encore without signing in (someone may look up a friend). Name and when only.">
+          {!data.visitors.length ? (
+            <p className="muted small">Nobody yet.</p>
+          ) : (
+            <div className="owner-table-wrap">
+              <table className="owner-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Last seen</th>
+                    <th>First seen</th>
+                    <th>Visits</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.visitors.map((v) => (
+                    <tr key={v.name}>
+                      <td>{v.name}</td>
+                      <td>{when(v.last_seen)}</td>
+                      <td>{when(v.first_seen)}</td>
+                      <td>{fmtNum(v.visits)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Group>
+      )}
     </>
   );
 }

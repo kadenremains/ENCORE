@@ -81,6 +81,8 @@ export interface CloudState {
   /** local edits not uploaded yet */
   dirty: boolean;
   privacy: Privacy | null;
+  /** an owner account (sees the owner stats in Settings) */
+  owner: boolean;
 }
 
 export const useCloud = create<CloudState>(() => ({
@@ -92,6 +94,7 @@ export const useCloud = create<CloudState>(() => ({
   waiting: false,
   dirty: false,
   privacy: null,
+  owner: false,
 }));
 
 let changeSeq = 0;
@@ -151,7 +154,7 @@ async function setupKey(token: string, user: string, sessionKey: string) {
       await legacyPull(token);
       const fresh = await newDataKey();
       const r = await api<{ vault: VaultRow; created: boolean }>(token, '/vault', { mode: 'create', wrapped: await lockDataKey(fresh, sessionKey), kid: fresh.kid });
-      if (r.created) return useKey(user, fresh, true);
+      if (r.created) return adoptKey(user, fresh, true);
       vault = r.vault; // another device got there first: use theirs
     }
     let dk: DataKey | null = null;
@@ -172,15 +175,16 @@ async function setupKey(token: string, user: string, sessionKey: string) {
       });
       return;
     }
-    return useKey(user, dk, !local || local.kid !== dk.kid);
+    return adoptKey(user, dk, !local || local.kid !== dk.kid);
   } catch (e) {
     useCloud.setState({ privacy: 'locked', error: `Couldn't set up private sync: ${(e as Error).message}` });
   }
 }
 
-function useKey(user: string, dk: DataKey, fresh: boolean) {
+function adoptKey(user: string, dk: DataKey, fresh: boolean) {
   dataKey = dk;
   saveLocalKey(user, dk);
+  void checkOwner();
   if (fresh) {
     // new to this device: download everything and upload everything (encrypted)
     LS.set(K.cursor, null);
@@ -188,6 +192,38 @@ function useKey(user: string, dk: DataKey, fresh: boolean) {
     LS.set(K.rejected, null);
   }
   useCloud.setState({ privacy: 'ready', error: null });
+}
+
+/**
+ * Owner accounts (set on the server) see the owner stats, and keep a readable copy of their own
+ * data key on the server so the owner can read their own data. Nobody else's key is ever sent.
+ */
+async function checkOwner() {
+  const { token } = useCloud.getState();
+  if (!token || !API_URL) return;
+  try {
+    const me = await api<{ name: string; owner?: boolean }>(token, '/me');
+    useCloud.setState({ owner: !!me.owner });
+    if (me.owner && dataKey && LS.get('sw.cloud.escrow') !== dataKey.kid) {
+      await api(token, '/vault', { mode: 'escrow', kid: dataKey.kid, key: toB64(dataKey.raw) });
+      LS.set('sw.cloud.escrow', dataKey.kid);
+    }
+  } catch {
+    /* try again next launch */
+  }
+}
+
+export interface AdminStats {
+  now: number;
+  accounts: { account: string; joined: number; last_seen: number | null; devices: number; private: number; wrappeds: number; pictures: number; bytes: number }[];
+  visitors: { name: string; first_seen: number; last_seen: number; visits: number }[];
+}
+
+/** Owner only: who uses Encore, how much they store, when they were last here. */
+export async function fetchAdminStats(): Promise<AdminStats> {
+  const { token } = useCloud.getState();
+  if (!token) throw new Error('Not signed in');
+  return api<AdminStats>(token, '/admin/stats');
 }
 
 /** Download what an account synced before private sync, so nothing is lost when it's replaced. */
@@ -348,8 +384,9 @@ export async function signOut() {
   LS.set(K.pushedAt, null);
   LS.set(K.rejected, null);
   LS.set(K.key, null);
+  LS.set('sw.cloud.escrow', null);
   dataKey = null;
-  useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false, privacy: null });
+  useCloud.setState({ token: null, user: null, status: 'idle', error: null, dirty: false, privacy: null, owner: false });
 }
 
 /* ---------------- sync ---------------- */
@@ -689,7 +726,10 @@ export function initCloud(h: Hooks) {
       void loadLocalKey(user).then((dk) => {
         dataKey = dataKey ?? dk;
         useCloud.setState({ privacy: dataKey ? 'ready' : 'needs-signin' });
-        if (dataKey) void syncNow();
+        if (dataKey) {
+          void syncNow();
+          void checkOwner();
+        }
       });
   }
 }

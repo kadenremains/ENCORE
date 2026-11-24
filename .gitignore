@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 worker/.account_id
 worker/.wrangler
+worker/.owner-data
