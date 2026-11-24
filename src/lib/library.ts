@@ -26,6 +26,8 @@ export interface Library {
   singleCandidates: { key: string; name: string; artist: string; plays: number }[];
   /** batch-scrobbled runs found in the history (set when the library is loaded) */
   batches?: import('./tidy').Batches;
+  /** scrobbles whose names came with codes left in (shown decoded; pointed out in Clean up) */
+  garbled?: import('./tidy').Garbled[];
 }
 
 export interface SingleInfo {

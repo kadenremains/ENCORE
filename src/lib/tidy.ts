@@ -22,8 +22,18 @@ export function decodeName(s: string): string {
     });
 }
 
-/** Rows with escaped names decoded (new objects only where something changes). */
-export function decodeNames(rows: StoredScrobble[]): StoredScrobble[] {
+/** A scrobble whose names came with codes left in: as it is on Last.fm, and what it should say. */
+export interface Garbled {
+  ts: number;
+  raw: { ar: string; tr: string; al: string };
+  fixed: { ar: string; tr: string; al: string };
+}
+
+/**
+ * Rows with escaped names decoded (new objects only where something changes). Each garbled
+ * scrobble is added to `found`, so Clean up can point them out for fixing on Last.fm.
+ */
+export function decodeNames(rows: StoredScrobble[], found?: Garbled[]): StoredScrobble[] {
   let out: StoredScrobble[] | null = null;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -33,6 +43,7 @@ export function decodeNames(rows: StoredScrobble[]): StoredScrobble[] {
     if (ar === r.ar && tr === r.tr && al === r.al) continue;
     out ??= rows.slice();
     out[i] = { ...r, ar, tr, al };
+    found?.push({ ts: r.ts, raw: { ar: r.ar, tr: r.tr, al: r.al }, fixed: { ar, tr, al } });
   }
   return out ?? rows;
 }

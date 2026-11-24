@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../store';
+import { usePrefs } from '../lib/prefs';
 import { EntityImg, fmtNum } from '../render/primitives';
 import { entityPath, routePath } from '../router';
 import { KIND_LABEL, TAG_LABEL, isObviousSingle, lastfmLibraryUrl, matchesSearch, mismatchesFor, openMismatches, type Fix, type Mismatch, type MismatchKind, type Variant } from '../lib/mismatches';
@@ -53,6 +54,7 @@ export function CleanupTab({ q: initialQ }: { q?: string }) {
 
   return (
     <>
+      <GarbledGroup lastfmUser={lastfmUser} />
       <section className="panel-box settings-group">
         <div className="panel-box-head">
           <h3>Mismatched scrobbles</h3>
@@ -131,6 +133,59 @@ export function CleanupTab({ q: initialQ }: { q?: string }) {
         </section>
       )}
     </>
+  );
+}
+
+/** Scrobbles whose names came with codes left in ("\u0026" for "&"): shown fixed in Encore, listed to fix on Last.fm. */
+function GarbledGroup({ lastfmUser }: { lastfmUser: string }) {
+  const list = useApp((s) => s.lib?.garbled);
+  const hour12 = usePrefs((p) => p.hour12);
+  if (!list?.length) return null;
+  const when = (t: number) => new Date(t * 1000).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12 });
+  const field = (raw: string, fixed: string) =>
+    raw === fixed ? (
+      <span>{fixed || <i className="muted">no album</i>}</span>
+    ) : (
+      <span>
+        <s className="garbled-raw">{raw}</s> → <b>{fixed}</b>
+      </span>
+    );
+  return (
+    <section className="panel-box settings-group">
+      <div className="panel-box-head">
+        <h3>Garbled names</h3>
+        <div className="panel-box-right muted small">{plural(list.length, 'scrobble')}</div>
+      </div>
+      <p className="muted small settings-desc">
+        These came from your scrobbler with codes in place of characters (“\u0026” instead of “&”). Encore already shows and counts them correctly; on Last.fm they stay garbled until you edit them{lastfmUser ? ' (Last.fm ↗ opens each one)' : ''}. Once fixed there, “Check for Last.fm edits” clears them from this list.
+      </p>
+      <ol className="garbled-list">
+        {list.map((g) => (
+          <li key={`${g.ts}|${g.raw.tr}`}>
+            <div className="garbled-main small">
+              <div>
+                <span className="muted">Song </span>
+                {field(g.raw.tr, g.fixed.tr)}
+              </div>
+              <div>
+                <span className="muted">Artist </span>
+                {field(g.raw.ar, g.fixed.ar)}
+              </div>
+              <div>
+                <span className="muted">Album </span>
+                {field(g.raw.al, g.fixed.al)}
+              </div>
+              <div className="muted">Scrobbled {when(g.ts)}</div>
+            </div>
+            {lastfmUser && (
+              <a className="btn small ghost" href={lastfmLibraryUrl(lastfmUser, g.raw.ar, undefined, g.raw.tr)} target="_blank" rel="noreferrer">
+                Last.fm ↗
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

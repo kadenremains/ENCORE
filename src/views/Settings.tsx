@@ -142,7 +142,7 @@ function BatchesGroup() {
 }
 
 function CleanupCount() {
-  const n = useOpenMismatches()?.length;
+  const n = (useOpenMismatches()?.length ?? 0) + (useApp((s) => s.lib?.garbled?.length) ?? 0);
   return n ? <span className="settings-nav-count">{n > 999 ? '999+' : n}</span> : null;
 }
 

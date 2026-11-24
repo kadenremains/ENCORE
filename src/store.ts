@@ -10,7 +10,7 @@ import { consumeAuthRedirect } from './lib/cloud';
 import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
 import { getPrefs } from './lib/prefs';
-import { decodeNames, findBatches } from './lib/tidy';
+import { decodeNames, findBatches, type Garbled } from './lib/tidy';
 import { applyFixes, findMismatches, fineKey, fixesFor, type Fix, type Mismatch } from './lib/mismatches';
 
 function loadJSON<T>(k: string, fallback: T): T {
@@ -201,10 +201,12 @@ async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Libra
   for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
   // tidy, then your merges from Clean up; the stored history stays exactly as Last.fm has it
   rows.sort((a, b) => a.ts - b.ts);
-  const { rows: listened, batches } = findBatches(decodeNames(rows), getPrefs().skipBatches);
+  const garbled: Garbled[] = [];
+  const { rows: listened, batches } = findBatches(decodeNames(rows, garbled), getPrefs().skipBatches);
   const fixed = applyFixes(listened, prefs.fixes);
   const lib = buildLibrary(fixed, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   lib.batches = batches;
+  lib.garbled = garbled.reverse(); // newest first
   installHints(lib);
   findMismatchesLater(fixed);
   return lib;

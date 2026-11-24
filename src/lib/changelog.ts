@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.6.2',
+    date: '2026-11-24',
+    title: 'Garbled names, pointed out',
+    notes: [
+      { text: 'Clean up lists every scrobble that came with codes in its name: what it says on Last.fm, what it should say, when, and a link to fix it there.' },
+    ],
+  },
+  {
     version: '2.6.1',
     date: '2026-11-24',
     title: 'Tidier names',
