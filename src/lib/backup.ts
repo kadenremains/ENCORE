@@ -1,6 +1,6 @@
 import { db, type ImageOverride } from './db';
 import { applyRemoteOverride, getOverride } from './images';
-import { clearTombstone, localChanged } from './changes';
+import { bumpSettings, clearTombstone, localChanged } from './changes';
 import { applyAppSettings, getAppSettings } from './appSettings';
 import type { Project } from '../editor/model';
 
@@ -61,7 +61,10 @@ export async function restoreBackup(file: File, opts: { settings: boolean }): Pr
     clearTombstone('image', o.key);
     images++;
   }
-  if (opts.settings && data.settings) applyAppSettings(data.settings);
+  if (opts.settings && data.settings) {
+    applyAppSettings(data.settings);
+    bumpSettings(); // restored settings count as a change, so they sync to your other devices
+  }
   if (projects || images) {
     localChanged();
     window.dispatchEvent(new Event('sw:remote-change'));

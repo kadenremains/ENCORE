@@ -1,16 +1,13 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useApp } from './store';
 import { useRoute } from './router';
 import { Onboard } from './views/Onboard';
-import { Editor } from './views/Editor';
-import { Settings } from './views/Settings';
 import { Shell } from './views/Shell';
 import { Overview } from './views/stats/Overview';
 import { TopView } from './views/stats/TopView';
 import { EntityView } from './views/stats/EntityView';
 import { Listening } from './views/stats/Listening';
 import { Records } from './views/stats/Records';
-import { Create } from './views/Create';
 import { FirstSync } from './views/FirstSync';
 import { initCloud, setOnSignedIn } from './lib/cloud';
 import { runMaintenance } from './lib/maintenance';
@@ -18,6 +15,16 @@ import { useEditor } from './editor/editorStore';
 import { usePrefs } from './lib/prefs';
 import { applyAppSettings, getAppSettings } from './lib/appSettings';
 import { applyUpdate, startUpdateChecks, useUpdate } from './lib/updates';
+
+// loaded when first opened: Create and the wrapped editor (graphics renderer, image exporter) and Settings
+const Editor = lazy(() => import('./views/Editor').then((m) => ({ default: m.Editor })));
+const Create = lazy(() => import('./views/Create').then((m) => ({ default: m.Create })));
+const Settings = lazy(() => import('./views/Settings').then((m) => ({ default: m.Settings })));
+const loading = (
+  <div className="center-screen">
+    <span className="spinner big" />
+  </div>
+);
 
 function startCloud() {
   setOnSignedIn((name) => void useApp.getState().adoptUser(name));
@@ -73,7 +80,12 @@ function Main() {
     );
   if (view === 'onboard') return <Onboard />;
   if (!demo && lib && lib.n === 0) return <FirstSync />;
-  if (route.name === 'edit') return <Editor id={route.id} />;
+  if (route.name === 'edit')
+    return (
+      <Suspense fallback={loading}>
+        <Editor id={route.id} />
+      </Suspense>
+    );
 
   let page;
   switch (route.name) {
@@ -90,10 +102,18 @@ function Main() {
       page = <Records />;
       break;
     case 'create':
-      page = <Create />;
+      page = (
+        <Suspense fallback={loading}>
+          <Create />
+        </Suspense>
+      );
       break;
     case 'settings':
-      page = <Settings tab={route.tab} />;
+      page = (
+        <Suspense fallback={loading}>
+          <Settings tab={route.tab} />
+        </Suspense>
+      );
       break;
     default:
       page = <Overview />;

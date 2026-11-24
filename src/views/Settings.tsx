@@ -13,7 +13,7 @@ import { cancelSignIn, forceFullSync, pollPending, signOut, startSignIn, syncNow
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
-import { deliverFiles } from '../lib/export';
+import { deliverFiles } from '../lib/share';
 import { buildId, checkForUpdate } from '../lib/updates';
 import { API_URL } from '../config';
 import { SinglesSettings } from './stats/Singles';

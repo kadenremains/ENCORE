@@ -161,6 +161,17 @@ async function claimLocalData(name: string, wasDemo: boolean) {
   }
 }
 
+/**
+ * Downloads and edit checks both rewrite the stored history. Run them one at a time, or a sync
+ * that lands while an edit check is replacing the same days would store those scrobbles twice.
+ */
+let historyQueue: Promise<unknown> = Promise.resolve();
+function withHistory<T>(fn: () => Promise<T>): Promise<T> {
+  const run = historyQueue.then(fn, fn);
+  historyQueue = run.catch(() => {});
+  return run;
+}
+
 let checkingSingles = false;
 let checkingEdits = false;
 let manualEditQueued = false;
@@ -248,14 +259,14 @@ export const useApp = create<AppState>((set, get) => ({
         })
         .catch(() => {});
       let lastRefresh = Date.now();
-      const added = await syncScrobbles(username, apiKey, (p) => {
+      const added = await withHistory(() => syncScrobbles(username, apiKey, (p) => {
         set({ sync: p });
         // refresh the in-memory library every so often during a long first sync
         if (p.phase === 'fetching' && Date.now() - lastRefresh > 15000) {
           lastRefresh = Date.now();
           loadLibraryFromDb().then((lib) => set({ lib }));
         }
-      });
+      }));
       // album artists (Last.fm's grouping) - refresh after new scrobbles, at most every 6 hours
       let albumsChanged = false;
       try {
@@ -299,7 +310,7 @@ export const useApp = create<AppState>((set, get) => ({
     let changed = 0;
     try {
       // 1) the last two weeks, every time (most edits happen soon after listening)
-      if (await reconcileWindow(username, apiKey, recentFrom, now)) changed++;
+      if (await withHistory(() => reconcileWindow(username, apiKey, recentFrom, now))) changed++;
 
       // 2) older history, a month at a time, newest first. In the background only a couple of
       //    months per sync, cycling through everything every few days; manual = all of it now.
@@ -315,7 +326,8 @@ export const useApp = create<AppState>((set, get) => ({
         let budget = manual ? Infinity : 2;
         while (cursor > firstTs && budget-- > 0) {
           const from = Math.max(monthStart(cursor - 1), firstTs);
-          if (await reconcileWindow(username, apiKey, from, cursor - 1)) changed++;
+          const end = cursor - 1;
+          if (await withHistory(() => reconcileWindow(username, apiKey, from, end))) changed++;
           cursor = from;
           done++;
           await setMeta('editCursor', cursor);
@@ -379,12 +391,15 @@ export const useApp = create<AppState>((set, get) => ({
       const todo = (get().lib?.singleCandidates ?? []).filter((c) => !counts[c.key]);
       let sinceSave = 0;
       let next = 0;
+      let becameAlbums = 0;
       // two at a time with a pause each: ~4 requests/s, under Last.fm's 5/s guideline
       const worker = async () => {
         while (next < todo.length) {
           const c = todo[next++];
           try {
-            counts[c.key] = [await fetchAlbumTrackCount(c.artist, c.name, apiKey), Date.now()];
+            const n = await fetchAlbumTrackCount(c.artist, c.name, apiKey);
+            counts[c.key] = [n, Date.now()];
+            if (n >= 2) becameAlbums++; // Last.fm says it's a real album: it shows up in albums again
           } catch {
             continue; // network / rate limit: try this one next time
           }
@@ -392,7 +407,11 @@ export const useApp = create<AppState>((set, get) => ({
           if (++sinceSave >= 60) {
             sinceSave = 0;
             await setMeta('albumTrackCounts', counts);
-            await get().reloadLibrary();
+            // rebuilding only matters when something changed on screen
+            if (becameAlbums) {
+              becameAlbums = 0;
+              await get().reloadLibrary();
+            }
           }
         }
       };
@@ -426,8 +445,10 @@ export const useApp = create<AppState>((set, get) => ({
   redownloadHistory: async () => {
     const { demo, username } = get();
     if (demo || !username) return;
-    await db.scrobbles.clear();
-    for (const k of ['syncPending', 'lastSync', 'editCursor', 'editPassAt']) await db.meta.delete(k);
+    await withHistory(async () => {
+      await db.scrobbles.clear();
+      for (const k of ['syncPending', 'lastSync', 'editCursor', 'editPassAt']) await db.meta.delete(k);
+    });
     set({ lib: await loadLibraryFromDb(), sync: null, syncError: null });
     await get().runSync();
   },

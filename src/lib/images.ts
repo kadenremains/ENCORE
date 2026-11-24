@@ -308,9 +308,29 @@ export function currentImage(kind: EntityKind, name: string, artist: string): Re
   return null;
 }
 
-export function useEntityImage(kind: EntityKind, name: string, artist: string): ResolvedImage | null {
-  useSyncExternalStore(subscribeImages, () => version);
+/** currentImage() as a plain string, so a picture only re-renders when its own image changes. */
+function imageSnapshot(kind: EntityKind, name: string, artist: string): string {
   const img = currentImage(kind, name, artist);
+  return img ? `${img.src}\u0001${img.zoom}\u0001${img.x}\u0001${img.y}\u0001${img.custom ? 1 : 0}` : '';
+}
+
+const parsed = new Map<string, ResolvedImage>();
+function fromSnapshot(snap: string): ResolvedImage | null {
+  if (!snap) return null;
+  let img = parsed.get(snap);
+  if (!img) {
+    const [src, zoom, x, y, custom] = snap.split('\u0001');
+    img = { src, zoom: Number(zoom), x: Number(x), y: Number(y), custom: custom === '1' };
+    if (parsed.size > 2000) parsed.clear();
+    parsed.set(snap, img);
+  }
+  return img;
+}
+
+export function useEntityImage(kind: EntityKind, name: string, artist: string): ResolvedImage | null {
+  // long lists hold hundreds of pictures; each one only re-renders when its own image changes
+  const snap = useSyncExternalStore(subscribeImages, () => imageSnapshot(kind, name, artist));
+  const img = fromSnapshot(snap);
   const key = entityKey(kind, name, artist);
   const needsLookup = !img && !!name && !resolved.has(key);
   useEffect(() => {
