@@ -12,6 +12,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.6.1',
+    date: '2026-11-24',
+    title: 'Tidier names',
+    notes: [
+      { text: 'Names some scrobblers send with codes left in (“Soda \\u0026 Syrup”, “&amp;”) now show as “&” and the like, and count with the right album.' },
+      { text: 'Settings → Stats lists batch-scrobbled plays: runs seconds apart, from skipping through songs or an import. Look through the songs in each, and leave them out of your stats if you like (off unless you turn it on).' },
+    ],
+  },
+  {
     version: '2.6',
     date: '2026-11-24',
     title: 'Clean up mismatched scrobbles',
