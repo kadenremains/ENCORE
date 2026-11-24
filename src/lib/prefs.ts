@@ -25,6 +25,8 @@ export interface Prefs {
   onlineArt: boolean;
   /* background work */
   autoEditCheck: boolean;
+  /** picked a look on first run (synced, so a signed-in account never sees the picker again) */
+  lookChosen: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -42,6 +44,7 @@ export const DEFAULT_PREFS: Prefs = {
   listImages: true,
   onlineArt: true,
   autoEditCheck: true,
+  lookChosen: false,
 };
 
 const LS = 'sw.prefs';

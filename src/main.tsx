@@ -22,6 +22,7 @@ import './index.css';
 import App from './App.tsx';
 import { installScrollToTopOnLinks } from './router';
 import { applyAppearance, getPrefs, usePrefs } from './lib/prefs';
+import { initLook } from './lib/look';
 
 installScrollToTopOnLinks();
 
@@ -31,6 +32,7 @@ if (!location.hash || location.hash === '#/' || location.hash === '#') {
   if (start !== 'overview') history.replaceState(null, '', `${location.pathname}${location.search}#/${start}`);
 }
 applyAppearance(getPrefs());
+initLook();
 usePrefs.subscribe(applyAppearance);
 
 createRoot(document.getElementById('root')!).render(

@@ -562,6 +562,7 @@ async function doSync() {
     LS.set(K.pushedAt, String(startedAt));
     LS.set(K.rejected, JSON.stringify(rejected));
     LS.set('sw.cloud.lastSync', String(Date.now()));
+    window.dispatchEvent(new Event('sw:synced'));
     useCloud.setState({
       status: 'idle',
       dirty: changeSeq !== seqAtStart,
@@ -570,6 +571,7 @@ async function doSync() {
     });
   } catch (e) {
     useCloud.setState({ status: 'error', error: (e as Error).message });
+    window.dispatchEvent(new Event('sw:synced'));
   }
 }
 

@@ -3,6 +3,7 @@ import type { CompareMode } from './range';
 import type { RangeSpec } from './types';
 import { applyRemotePrefs, getPrefs } from './prefs';
 import { MILESTONE_KEY } from './milestonePrefs';
+import { markLookChosen } from './look';
 
 /** Every synced setting in one object: date range, comparison, milestones, album prefs, Settings page. */
 export function getAppSettings() {
@@ -26,7 +27,10 @@ export function applyAppSettings(raw: unknown) {
   } catch {
     /* private mode */
   }
-  if (d.prefs) applyRemotePrefs(d.prefs);
+  if (d.prefs) {
+    applyRemotePrefs(d.prefs);
+    markLookChosen(true); // an account with settings already has its look
+  }
   useApp.setState({ ...(d.range ? { exploreRange: d.range } : {}), ...(d.compare ? { compare: d.compare } : {}) });
   if (d.albums && JSON.stringify(d.albums) !== JSON.stringify(useApp.getState().albumPrefs)) void useApp.getState().setAlbumPrefs(d.albums, { fromSync: true });
 }

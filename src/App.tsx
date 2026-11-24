@@ -9,7 +9,9 @@ import { EntityView } from './views/stats/EntityView';
 import { Listening } from './views/stats/Listening';
 import { Records } from './views/stats/Records';
 import { FirstSync } from './views/FirstSync';
-import { initCloud, setOnSignedIn } from './lib/cloud';
+import { initCloud, setOnSignedIn, useCloud } from './lib/cloud';
+import { lookAccountChecked, useLook } from './lib/look';
+import { LookPicker } from './views/LookPicker';
 import { runMaintenance } from './lib/maintenance';
 import { useEditor } from './editor/editorStore';
 import { usePrefs } from './lib/prefs';
@@ -71,6 +73,22 @@ function Main() {
   }, [init]);
   const lib = useApp((s) => s.lib);
   const demo = useApp((s) => s.demo);
+  const look = useLook();
+  const token = useCloud((s) => s.token);
+  const locked = useCloud((s) => s.privacy === 'locked');
+
+  // signed in on a browser that hasn't picked a look: wait to hear whether the account already has one
+  useEffect(() => {
+    if (look.chosen || !token || look.accountChecked) return;
+    if (locked) return lookAccountChecked();
+    const done = () => lookAccountChecked();
+    window.addEventListener('sw:synced', done);
+    const t = setTimeout(done, 8000);
+    return () => {
+      window.removeEventListener('sw:synced', done);
+      clearTimeout(t);
+    };
+  }, [look.chosen, look.accountChecked, token, locked]);
 
   if (view === 'loading')
     return (
@@ -79,6 +97,11 @@ function Main() {
       </div>
     );
   if (view === 'onboard') return <Onboard />;
+  // first run: pick a look before anything else (a new account's history downloads meanwhile)
+  if (!look.chosen) {
+    if (token && !look.accountChecked) return loading;
+    return <LookPicker />;
+  }
   if (!demo && lib && lib.n === 0) return <FirstSync />;
   if (route.name === 'edit')
     return (

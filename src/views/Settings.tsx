@@ -8,6 +8,7 @@ import { dayToDate } from '../lib/library';
 import { GAP_OPTIONS, type CompareMode } from '../lib/range';
 import { useRangeStats } from './stats/useRangeStats';
 import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../lib/prefs';
+import { ACCENTS, PALETTES } from '../lib/looks';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
 import { cancelSignIn, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
@@ -509,24 +510,6 @@ function ImagesTab() {
 }
 
 /* ------------------------------------------------------------------ appearance */
-
-const PALETTES: { id: Prefs['palette']; name: string; desc: string; colors: [string, string, string] }[] = [
-  { id: 'ink', name: 'Vault', desc: 'The original: silver on near-black', colors: ['#0a0a0c', '#18181c', '#e8ebf1'] },
-  { id: 'oled', name: 'Black', desc: 'True black, for OLED screens', colors: ['#000000', '#101010', '#f2f2f2'] },
-  { id: 'midnight', name: 'Midnight', desc: 'Deep blue-black', colors: ['#080b12', '#151b2a', '#e6ecf8'] },
-  { id: 'sepia', name: 'Darkroom', desc: 'Warm, like old prints', colors: ['#100d0a', '#1e1914', '#efe6d8'] },
-  { id: 'light', name: 'Paper', desc: 'Light, ink on paper', colors: ['#f3f2ef', '#ffffff', '#16171b'] },
-];
-
-const ACCENTS: { id: Prefs['accent']; name: string; color: string }[] = [
-  { id: 'silver', name: 'Silver', color: '#c8cdd6' },
-  { id: 'gold', name: 'Gold', color: '#e2c27a' },
-  { id: 'rose', name: 'Rose', color: '#f0a3b5' },
-  { id: 'ember', name: 'Ember', color: '#ff9a6b' },
-  { id: 'mint', name: 'Mint', color: '#8fe0bf' },
-  { id: 'ice', name: 'Ice', color: '#9cc8ff' },
-  { id: 'violet', name: 'Violet', color: '#b9a3ff' },
-];
 
 function AppearanceTab() {
   const prefs = usePrefs();

@@ -3,7 +3,7 @@ import { buildLibrary, type AlbumArtistList, type Library } from './lib/library'
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
 import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
-import type { RangeSpec, UserInfo } from './lib/types';
+import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
 import { generateDemo } from './lib/demo';
 import type { CompareMode } from './lib/range';
 import { consumeAuthRedirect } from './lib/cloud';
@@ -139,8 +139,8 @@ export function loadAlbumPrefs(): AlbumPrefs {
 
 type TrackCounts = Record<string, [number, number]>; // album key -> [songs on Last.fm or -1, fetched at]
 
-async function loadLibraryFromDb(): Promise<Library> {
-  const [rows, albumArtists, trackCounts] = await Promise.all([db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
+async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Library> {
+  const [rows, albumArtists, trackCounts] = await Promise.all([rowsInMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
   const prefs = loadAlbumPrefs();
   const counts: Record<string, number> = {};
   for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
@@ -214,6 +214,10 @@ export const useApp = create<AppState>((set, get) => ({
         set({ username: auth.user, demo: false });
       }
     }
+    if (get().demo && !(await getMeta<boolean>('demoSaved'))) {
+      await loadImageState();
+      return get().startDemo(); // the demo was closed before it finished saving
+    }
     const { username, demo } = get();
     if (!username && !demo) {
       await loadImageState();
@@ -241,11 +245,18 @@ export const useApp = create<AppState>((set, get) => ({
     await db.scrobbles.clear();
     await db.meta.clear();
     const rows = generateDemo();
-    await db.scrobbles.bulkAdd(rows);
     const user: UserInfo = { name: 'demo', playcount: rows.length, registered: rows[0].ts };
     await setMeta('user', user);
     LS.set('sw.demo', '1');
-    set({ demo: true, user, lib: await loadLibraryFromDb(), view: 'app' });
+    // show it straight from memory; saving ~150k scrobbles to storage happens in the background
+    set({ demo: true, user, lib: await loadLibraryFromDb([...rows]), view: 'app' });
+    void (async () => {
+      for (let i = 0; i < rows.length; i += 20000) {
+        if (!get().demo) return; // left the demo meanwhile
+        await db.scrobbles.bulkAdd(rows.slice(i, i + 20000));
+      }
+      await setMeta('demoSaved', true);
+    })();
   },
 
   runSync: async () => {

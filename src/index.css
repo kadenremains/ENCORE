@@ -3901,3 +3901,71 @@ kbd {
 .owner-table tbody tr:hover {
   background: var(--panel-2);
 }
+
+/* first-run look picker */
+.look-card {
+  max-width: 640px;
+  gap: 20px;
+}
+.look-preview {
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.look-preview-big {
+  font-family: var(--disp);
+  font-size: 52px;
+  line-height: 0.9;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+.look-preview-row {
+  display: flex;
+  gap: 28px;
+}
+.look-preview-row b {
+  display: block;
+  font-family: var(--disp);
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+}
+.look-preview-row small {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.look-preview-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+.look-preview-bar i {
+  display: block;
+  height: 5px;
+  background: var(--bar);
+  opacity: 0.85;
+}
+.look-picker .field-label {
+  display: block;
+  margin-bottom: 8px;
+}
+.look-size {
+  align-items: center;
+}
+.look-size .field-label {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .look-picker .palette-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .look-picker .palette-desc {
+    display: none;
+  }
+}

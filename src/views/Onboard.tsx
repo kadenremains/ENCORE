@@ -19,6 +19,7 @@ export function Onboard() {
   const [apiKey, setApiKey] = useState(savedKey || builtInKey);
   const [ownKey, setOwnKey] = useState(!!savedKey && savedKey !== builtInKey);
   const [busy, setBusy] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState<string | null>(authError ? (AUTH_ERRORS[authError] ?? `Sign-in failed: ${authError}`) : null);
 
   useEffect(() => {
@@ -125,8 +126,22 @@ export function Onboard() {
             {busy ? 'Connecting…' : signIn ? 'Continue without signing in' : 'Connect & download history'}
           </button>
         </form>
-        <button className="link" onClick={() => startDemo()}>
-          or try it with demo data first →
+        <button
+          className="link"
+          disabled={demoBusy}
+          onClick={() => {
+            setDemoBusy(true);
+            // let the button repaint before the (heavy) history is built
+            setTimeout(() => void startDemo().finally(() => setDemoBusy(false)), 30);
+          }}
+        >
+          {demoBusy ? (
+            <>
+              <span className="spinner" /> Building 14 years of demo listening…
+            </>
+          ) : (
+            'or try it with demo data first →'
+          )}
         </button>
         <p className="muted small">Your listening history is stored in your browser. Signing in only syncs what you create.</p>
       </div>
