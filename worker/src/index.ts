@@ -15,8 +15,11 @@ import { md5 } from './md5';
  * ("e1:" values, picture names hashed to "h:" keys). The key that opens them is stored here only
  * locked with the user's Last.fm session key, which this server passes to the browser at sign-in
  * and never stores or logs. So the database holds usernames and unreadable data, nothing else.
+ *  - POST /account/delete   delete everything stored for the signed-in account
  *  - POST /logout
- *  - GET/POST /setup         one-time page for saving the Last.fm key + secret
+ *  - GET  /art?type=&q=      artwork search (Deezer), so the app never runs third-party code
+ *  - POST /blobs/missing, GET/PUT /blob/<id>   the encrypted picture store
+ *  - GET  /admin/stats       owner-only usage numbers
  */
 
 export interface Env {
@@ -58,7 +61,7 @@ interface Keys {
 }
 let keyCache: { at: number; keys: Keys } | null = null;
 
-/** Last.fm credentials: Worker secrets if set, otherwise the ones saved through /setup. */
+/** Last.fm credentials: Worker secrets if set, otherwise the ones saved in the config table. */
 async function getKeys(env: Env): Promise<Keys> {
   if (env.LASTFM_API_KEY && env.LASTFM_SECRET) return { key: env.LASTFM_API_KEY, secret: env.LASTFM_SECRET };
   if (keyCache && Date.now() - keyCache.at < 60_000) return keyCache.keys;
@@ -105,8 +108,9 @@ export default {
           res = json({ ok: true, service: 'encore-api', lastfm: !!k.key, signIn: !!(k.key && k.secret) });
           break;
         }
-        case '/setup':
-          return await setup(req, url, env);
+        case '/art':
+          res = Object.keys(cors).length ? await art(req, url) : json({ error: 'origin not allowed' }, 403);
+          break;
         case '/lastfm':
           res = Object.keys(cors).length ? await lastfmRelay(req, url, env, ctx) : json({ error: 'origin not allowed' }, 403);
           break;
@@ -132,6 +136,9 @@ export default {
         case '/sync':
           res = req.method === 'POST' ? await sync(req, env) : json({ error: 'POST only' }, 405);
           break;
+        case '/account/delete':
+          res = req.method === 'POST' ? await deleteAccount(req, env) : json({ error: 'POST only' }, 405);
+          break;
         case '/logout':
           res = await logout(req, env);
           break;
@@ -145,6 +152,10 @@ export default {
     }
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+    // standard hardening: no type sniffing, no referrers, nothing personal cached by proxies
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Referrer-Policy', 'no-referrer');
+    if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'no-store');
     return new Response(res.body, { status: res.status, headers });
   },
 };
@@ -204,6 +215,32 @@ async function lastfmRelay(req: Request, url: URL, env: Env, ctx?: ExecutionCont
   params.set('format', 'json');
   const upstream = await fetch(`${LASTFM}?${params}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
   return new Response(upstream.body, { status: upstream.status, headers: { 'content-type': 'application/json' } });
+}
+
+/* ---------------- artwork search ---------------- */
+
+/**
+ * Deezer's search, fetched here instead of in the browser (Deezer has no CORS, and the old
+ * workaround ran Deezer's script inside the app). Only names and picture links come back, and
+ * only pictures from Deezer's image servers. Nothing is stored or logged.
+ */
+const DEEZER_IMG = /^https:\/\/(cdn-images|e-cdns-images)\.dzcdn\.net\//;
+async function art(req: Request, url: URL) {
+  if (!allow(req.headers.get('CF-Connecting-IP') ?? 'unknown', 8, 60)) return json({ error: 'slow down' }, 429);
+  const type = url.searchParams.get('type') ?? '';
+  const q = (url.searchParams.get('q') ?? '').slice(0, 200);
+  if (!['artist', 'album', 'track'].includes(type) || !q.trim()) return json({ error: 'bad request' }, 400);
+  const r = await fetch(`https://api.deezer.com/search/${type}?q=${encodeURIComponent(q)}&limit=5`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
+  if (!r.ok) return json({ error: 'upstream' }, 502);
+  type Hit = { name?: string; title?: string; picture_xl?: string; cover_xl?: string; artist?: { name?: string }; album?: { cover_xl?: string } };
+  const body = (await r.json().catch(() => ({}))) as { data?: Hit[] };
+  const pic = (u?: string) => (u && DEEZER_IMG.test(u) && !u.includes('/artist//') ? u : '');
+  const data = (body.data ?? []).slice(0, 5).map((h) => ({
+    name: String(h.name ?? h.title ?? ''),
+    artist: String(h.artist?.name ?? ''),
+    picture: pic(type === 'artist' ? h.picture_xl : type === 'album' ? h.cover_xl : h.album?.cover_xl),
+  }));
+  return new Response(JSON.stringify({ data }), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=86400' } });
 }
 
 /* ---------------- auth ---------------- */
@@ -497,6 +534,20 @@ async function me(req: Request, env: Env) {
   return json({ name: row?.display ?? user, owner: isOwner(user, env) });
 }
 
+/** Everything the server holds for this account, gone: synced data, pictures, key, devices, name. */
+async function deleteAccount(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  await env.DB.batch(
+    ['projects', 'images', 'settings', 'chunks', 'blobs', 'vault', 'sessions'].map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE user = ?`).bind(user)).concat([
+      env.DB.prepare('DELETE FROM users WHERE name = ?').bind(user),
+      env.DB.prepare('DELETE FROM visitors WHERE name = ?').bind(user),
+    ]),
+  );
+  console.log(JSON.stringify({ evt: 'account-deleted' }));
+  return json({ ok: true });
+}
+
 async function logout(req: Request, env: Env) {
   const m = (req.headers.get('Authorization') ?? '').match(/^Bearer ([0-9a-f]{64})$/);
   if (m) await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind(m[1]).run();
@@ -708,73 +759,4 @@ async function sync(req: Request, env: Env) {
     images,
     settings: s ? { data: s.data, updated: s.updated } : null,
   });
-}
-
-/* ---------------- one-time setup page ---------------- */
-
-async function sha256(s: string) {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-const page = (title: string, body: string, status = 200) =>
-  new Response(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>${title}</title><style>
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0c;color:#e8ebf1;font:13px ui-monospace,Menlo,monospace;padding:16px;box-sizing:border-box}
-.card{position:relative;max-width:440px;width:100%;border:1px solid rgba(200,205,214,.22);background:#121215;padding:28px}
-.card:before{content:"";position:absolute;inset:8px;border:1px solid rgba(200,205,214,.1);pointer-events:none}
-h1{font:400 30px/1 Impact,sans-serif;letter-spacing:.14em;margin:0 0 10px;text-transform:uppercase}
-p{color:#b6bcc8;line-height:1.6}label{display:block;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#7b8493;margin:16px 0 6px}
-input{width:100%;box-sizing:border-box;background:#18181c;border:1px solid rgba(200,205,214,.22);color:#e8ebf1;padding:11px;font:inherit;font-size:15px;border-radius:3px}
-button{margin-top:20px;width:100%;padding:13px;background:#e8ebf1;color:#0a0a0c;border:0;border-radius:3px;font:inherit;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
-a{color:#e8ebf1}.err{color:#d06a6a}.ok{color:#8fd19e}
-</style></head><body><div class="card">${body}</div></body></html>`,
-    { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } },
-  );
-
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-
-async function validCode(env: Env, code: string) {
-  if (!/^[0-9a-f]{32,64}$/.test(code)) return false;
-  const row = await env.DB.prepare('SELECT expires FROM setup_codes WHERE hash = ?').bind(await sha256(code)).first<{ expires: number }>();
-  return !!row && row.expires > Date.now();
-}
-
-async function setup(req: Request, url: URL, env: Env): Promise<Response> {
-  if (req.method === 'GET') {
-    const code = url.searchParams.get('code') ?? '';
-    if (!(await validCode(env, code))) return page('Link expired', '<h1>Link expired</h1><p>This setup link was already used or has expired.</p>', 403);
-    return page(
-      'Encore setup',
-      `<h1>Encore setup</h1>
-<p>Paste the two values from your <a href="https://www.last.fm/api/accounts" target="_blank" rel="noreferrer">Last.fm API account</a> page. They're saved to your Encore database and never shown again.</p>
-<form method="post" action="/setup" autocomplete="off">
-<input type="hidden" name="code" value="${esc(code)}">
-<label>API key</label><input name="key" required minlength="32" maxlength="32" spellcheck="false" autocapitalize="off">
-<label>Shared secret</label><input name="secret" required minlength="32" maxlength="32" spellcheck="false" autocapitalize="off" type="password">
-<button>Save &amp; turn on sign-in</button></form>`,
-    );
-  }
-  if (req.method !== 'POST') return page('Setup', '<p>Unsupported.</p>', 405);
-  const form = await req.formData();
-  const code = String(form.get('code') ?? '');
-  const key = String(form.get('key') ?? '').trim();
-  const secret = String(form.get('secret') ?? '').trim();
-  if (!(await validCode(env, code))) return page('Link expired', '<h1>Link expired</h1><p>This setup link was already used or has expired.</p>', 403);
-  if (!/^[0-9a-f]{32}$/i.test(key) || !/^[0-9a-f]{32}$/i.test(secret))
-    return page('Check the values', `<h1>Not quite</h1><p class="err">Both values should be 32 characters of letters a–f and numbers.</p><p><a href="/setup?code=${esc(code)}">Try again</a></p>`, 400);
-  // prove the pair works: auth.getToken needs a valid key AND a correct signature from the secret
-  const sig = md5(`api_key${key}methodauth.getToken${secret}`);
-  const r = await fetch(`${LASTFM}?${new URLSearchParams({ method: 'auth.getToken', api_key: key, api_sig: sig, format: 'json' })}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
-  const body = (await r.json().catch(() => ({}))) as { token?: string; message?: string };
-  if (!body.token)
-    return page('Check the values', `<h1>Not quite</h1><p class="err">Last.fm didn't accept that pair: ${esc(body.message ?? 'unknown error')}. Make sure the key and the secret aren't swapped.</p><p><a href="/setup?code=${esc(code)}">Try again</a></p>`, 400);
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO config (k, v) VALUES ('lastfm_api_key', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(key.toLowerCase()),
-    env.DB.prepare("INSERT INTO config (k, v) VALUES ('lastfm_secret', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(secret.toLowerCase()),
-    env.DB.prepare('DELETE FROM setup_codes'),
-  ]);
-  keyCache = null;
-  return page('All set', '<h1>All set</h1><p class="ok">Last.fm sign-in and the shared key are on.</p><p>You can close this tab and go back to Encore.</p>');
 }

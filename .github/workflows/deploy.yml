@@ -24,10 +24,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run build
-        env:
-          # optional: a shared Last.fm API key so visitors only need their username
-          VITE_LASTFM_API_KEY: ${{ vars.LASTFM_API_KEY }}
+      # the server is deployed separately, but it must still type-check
+      - run: npm ci && npx tsc --noEmit
+        working-directory: worker
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

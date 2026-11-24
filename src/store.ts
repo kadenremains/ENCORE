@@ -179,7 +179,7 @@ let manualEditQueued = false;
 export const useApp = create<AppState>((set, get) => ({
   view: 'loading',
   username: LS.get('sw.username'),
-  apiKey: LS.get('sw.apiKey') || (import.meta.env.VITE_LASTFM_API_KEY as string | undefined) || '',
+  apiKey: LS.get('sw.apiKey'),
   demo: LS.get('sw.demo') === '1',
   user: null,
   lib: null,

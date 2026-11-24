@@ -377,6 +377,14 @@ export function consumeAuthRedirect(): { user?: string; error?: string } | null 
   return { user };
 }
 
+/** Delete everything the server holds for this account, then sign out here. Local data stays. */
+export async function deleteAccountData() {
+  const { token } = useCloud.getState();
+  if (!token) return;
+  await api(token, '/account/delete', {});
+  await signOut();
+}
+
 export async function signOut() {
   const { token } = useCloud.getState();
   if (token && API_URL) fetch(`${API_URL}/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});

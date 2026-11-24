@@ -130,6 +130,10 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
                   disabled={!url || fetching}
                   onClick={async () => {
                     const link = url.trim();
+                    if (!/^https?:\/\/[^\s]+$/i.test(link)) {
+                      setLinkNote({ text: 'Paste a link that starts with https://', bad: true });
+                      return;
+                    }
                     setFetching(true);
                     setLinkNote(null);
                     // keep our own copy so exports + other devices don't depend on that website

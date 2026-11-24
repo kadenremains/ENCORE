@@ -3,6 +3,7 @@ import { db, entityKey, type ImageOverride } from './db';
 import type { EntityKind } from './types';
 import { clearTombstone, localChanged, markDeleted } from './changes';
 import { getPrefs } from './prefs';
+import { API_URL } from '../config';
 
 /* ---------------- in-memory state + subscriptions ---------------- */
 
@@ -103,68 +104,33 @@ function similar(a: string, b: string) {
   return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
 }
 
-let jsonpCounter = 0;
-function jsonp<T>(url: string, timeout = 8000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const cb = `__sw_jsonp_${Date.now()}_${jsonpCounter++}`;
-    const script = document.createElement('script');
-    const w = window as unknown as Record<string, unknown>;
-    const cleanup = () => {
-      // a reply that arrives after we gave up still calls the callback: leave a no-op for it
-      w[cb] = () => {};
-      setTimeout(() => delete w[cb], 120_000);
-      script.remove();
-      clearTimeout(timer);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('jsonp timeout'));
-    }, timeout);
-    w[cb] = (data: T) => {
-      cleanup();
-      resolve(data);
-    };
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('jsonp error'));
-    };
-    script.src = `${url}${url.includes('?') ? '&' : '?'}output=jsonp&callback=${cb}`;
-    document.head.appendChild(script);
-  });
-}
-
-interface DeezerArtist {
+/** Deezer search through Encore's server (Deezer doesn't let browsers call it directly). */
+interface ArtHit {
   name: string;
-  picture_xl?: string;
+  artist: string;
+  picture: string;
 }
-interface DeezerAlbum {
-  title: string;
-  cover_xl?: string;
-  artist: { name: string };
-}
-interface DeezerTrack {
-  title: string;
-  artist: { name: string };
-  album: { cover_xl?: string };
+async function deezer(type: 'artist' | 'album' | 'track', q: string): Promise<ArtHit[]> {
+  if (!API_URL) return [];
+  const r = await fetch(`${API_URL}/art?type=${type}&q=${encodeURIComponent(q)}`);
+  if (!r.ok) throw new Error(`artwork search ${r.status}`);
+  return ((await r.json()) as { data?: ArtHit[] }).data ?? [];
 }
 
 async function deezerArtist(artist: string): Promise<string> {
-  const r = await jsonp<{ data?: DeezerArtist[] }>(`https://api.deezer.com/search/artist?q=${encodeURIComponent(artist)}&limit=5`);
-  const hit = r.data?.find((a) => norm(a.name) === norm(artist)) ?? r.data?.find((a) => similar(a.name, artist));
-  const url = hit?.picture_xl ?? '';
-  return url.includes('/artist//') ? '' : url; // empty hash = Deezer placeholder
+  const hits = await deezer('artist', artist);
+  const hit = hits.find((a) => norm(a.name) === norm(artist)) ?? hits.find((a) => similar(a.name, artist));
+  return hit?.picture ?? '';
 }
 
 async function deezerAlbum(name: string, artist: string): Promise<string> {
-  const r = await jsonp<{ data?: DeezerAlbum[] }>(`https://api.deezer.com/search/album?q=${encodeURIComponent(`artist:"${artist}" album:"${name}"`)}&limit=5`);
-  const hit = r.data?.find((a) => similar(a.artist.name, artist) && similar(a.title, name));
-  return hit?.cover_xl ?? '';
+  const hits = await deezer('album', `artist:"${artist}" album:"${name}"`);
+  return hits.find((a) => similar(a.artist, artist) && similar(a.name, name))?.picture ?? '';
 }
 
 async function deezerTrack(name: string, artist: string): Promise<string> {
-  const r = await jsonp<{ data?: DeezerTrack[] }>(`https://api.deezer.com/search/track?q=${encodeURIComponent(`artist:"${artist}" track:"${name}"`)}&limit=5`);
-  const hit = r.data?.find((a) => similar(a.artist.name, artist) && similar(a.title, name));
-  return hit?.album.cover_xl ?? '';
+  const hits = await deezer('track', `artist:"${artist}" track:"${name}"`);
+  return hits.find((a) => similar(a.artist, artist) && similar(a.name, name))?.picture ?? '';
 }
 
 interface ItunesResult {
@@ -174,13 +140,15 @@ interface ItunesResult {
   artworkUrl100?: string;
 }
 
+/** Apple's iTunes Search, asked directly by the browser (it allows that), for covers nobody else has. */
 async function itunes(kind: 'album' | 'track', name: string, artist: string): Promise<string> {
   const entity = kind === 'album' ? 'album' : 'song';
-  const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${name}`)}&entity=${entity}&limit=8`);
-  if (!res.ok) return '';
+  const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${name}`)}&entity=${entity}&limit=8`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+  if (!res.ok) throw new Error(`iTunes ${res.status}`);
   const r: { results?: ItunesResult[] } = await res.json();
   const hit = r.results?.find((x) => similar(x.artistName, artist) && similar((kind === 'album' ? x.collectionName : x.trackName) ?? '', name));
-  return hit?.artworkUrl100?.replace(/\/\d+x\d+bb\./, '/1200x1200bb.') ?? '';
+  const url = hit?.artworkUrl100?.replace(/\/\d+x\d+bb\./, '/1200x1200bb.') ?? '';
+  return /^https:\/\/is\d+-ssl\.mzstatic\.com\//.test(url) ? url : '';
 }
 
 /**

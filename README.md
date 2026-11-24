@@ -31,6 +31,10 @@ Open from the profile menu (top right). Tabs:
 
 Settings sync between devices when you're signed in.
 
+## Privacy and security
+
+Synced data is end-to-end encrypted; the server stores usernames, last-used times and sizes, nothing readable. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
+
 ## Create
 
 - **Any time range:** your whole scrobble history is downloaded once into your browser (IndexedDB), so every stat is computed locally and instantly for any range: a week, a summer, a custom span, or a year compared with the year before.
@@ -60,7 +64,7 @@ Your scrobble history is downloaded once into your browser and every stat is com
 - **Sync** of wrappeds, custom images and settings across devices (last-write-wins, deletions included). Items bigger than a database row are stored in pieces.
 - **Last.fm relay.** Visitors don't need their own API key, and the key never ships in the site's code.
 
-The Last.fm key/secret live in the database (set through a one-time `/setup` link) or as Worker secrets `LASTFM_API_KEY` / `LASTFM_SECRET`. Deploy with `cd worker && npx wrangler deploy`. The tables are in `worker/schema.sql`.
+The Last.fm key and secret are Worker secrets (`npx wrangler secret put LASTFM_API_KEY` / `LASTFM_SECRET`) or rows in the `config` table; they're never in this repository or the site's code. Deploy with `cd worker && npx wrangler deploy`. The full database layout is `worker/schema.sql`.
 
 ## Development
 

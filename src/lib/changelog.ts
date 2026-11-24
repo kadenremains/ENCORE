@@ -12,6 +12,20 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.4',
+    date: '2026-11-24',
+    title: 'Safety check',
+    notes: [
+      { text: 'Only Encore’s own code can run in the app now; artist photo searches go through Encore’s server instead of running Deezer’s code.' },
+      { text: 'Settings → Account → Delete my synced data removes everything the server holds for your account.' },
+      { text: 'A plain-language privacy summary in Settings → About, with the full note on GitHub.' },
+      { text: 'Pasted picture links must be real web addresses, and profile links only ever open Last.fm.' },
+      { text: 'Content Security Policy on the site (scripts only from the site itself); referrers off.', owner: true },
+      { text: 'Server: /art Deezer proxy (names + Deezer image links only), nosniff / no-referrer / no-store headers on every response, /account/delete, the one-time /setup page and its table removed, no Last.fm key option in the site build.', owner: true },
+      { text: 'PRIVACY.md and SECURITY.md; GitHub builds now lint the app and type-check the server.', owner: true },
+    ],
+  },
+  {
     version: '2.3',
     date: '2026-11-24',
     title: 'Lighter sync, same pictures',

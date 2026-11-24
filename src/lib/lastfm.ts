@@ -76,13 +76,15 @@ export async function fetchUserInfo(user: string, apiKey: string): Promise<UserI
   );
   const u = r.user;
   const img = u.image?.[u.image.length - 1]?.['#text'];
+  // profile links are only ever followed if they really point at Last.fm
+  const url = /^https:\/\/(www\.)?last\.fm\//.test(u.url ?? '') ? u.url : undefined;
   return {
     name: u.name,
     realname: u.realname || undefined,
     playcount: Number(u.playcount) || 0,
     registered: Number(u.registered?.unixtime) || 0,
     image: img || undefined,
-    url: u.url,
+    url,
   };
 }
 

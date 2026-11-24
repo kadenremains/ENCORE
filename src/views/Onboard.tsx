@@ -14,10 +14,9 @@ export function Onboard() {
   const { connect, startDemo, username: savedUser, apiKey: savedKey, authError } = useApp();
   const available = useCloud((s) => s.available);
   const waiting = useCloud((s) => s.waiting);
-  const builtInKey = (import.meta.env.VITE_LASTFM_API_KEY as string | undefined) || '';
   const [username, setUsername] = useState(savedUser);
-  const [apiKey, setApiKey] = useState(savedKey || builtInKey);
-  const [ownKey, setOwnKey] = useState(!!savedKey && savedKey !== builtInKey);
+  const [apiKey, setApiKey] = useState(savedKey);
+  const [ownKey, setOwnKey] = useState(!!savedKey);
   const [busy, setBusy] = useState(false);
   const [demoBusy, setDemoBusy] = useState(false);
   const [error, setError] = useState<string | null>(authError ? (AUTH_ERRORS[authError] ?? `Sign-in failed: ${authError}`) : null);
@@ -28,7 +27,7 @@ export function Onboard() {
 
   // a key is only needed when neither the relay nor a built-in key can cover it
   const relayOk = !!available?.lastfm;
-  const needKey = ownKey || (!relayOk && !builtInKey && (available !== null || !API_URL));
+  const needKey = ownKey || (!relayOk && (available !== null || !API_URL));
   const signIn = !!available?.signIn;
 
   const submit = async (e: React.FormEvent) => {
@@ -36,7 +35,7 @@ export function Onboard() {
     setBusy(true);
     setError(null);
     try {
-      await connect(username, needKey ? apiKey : builtInKey);
+      await connect(username, needKey ? apiKey : '');
     } catch (err) {
       setError((err as Error).message);
     } finally {

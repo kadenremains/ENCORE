@@ -11,7 +11,7 @@ import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../li
 import { ACCENTS, PALETTES } from '../lib/looks';
 import { APP_VERSION, CHANGELOG } from '../lib/changelog';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
-import { cancelSignIn, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
+import { cancelSignIn, deleteAccountData, fetchAdminStats, forceFullSync, pollPending, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
@@ -277,6 +277,21 @@ function AccountTab() {
           (any app name, leave the callback blank).
         </p>
       </Group>
+
+      {cloud.token && (
+        <Group title="Delete my synced data" desc="Removes everything Encore’s server holds for your account: synced wrappeds, pictures and settings, your devices and your username. What’s on this device stays, and you can sign in again any time to start fresh.">
+          <ActionButton
+            danger
+            confirmText="Delete everything Encore’s server stores for your account? Your other devices will be signed out. This can’t be undone."
+            run={async () => {
+              await deleteAccountData();
+              return 'Deleted';
+            }}
+          >
+            Delete my synced data
+          </ActionButton>
+        </Group>
+      )}
 
       <Group title="Disconnect" desc="Deletes the downloaded listening history from this browser and goes back to the start screen. Your wrappeds, pictures and settings stay (and stay on your account if sync is on).">
         <button className="btn danger" onClick={() => confirm('Disconnect and delete the downloaded history from this browser?') && void disconnect()}>
@@ -781,6 +796,15 @@ function AboutTab() {
           </button>
           {upd && <span className="muted small">{upd}</span>}
         </Row>
+      </Group>
+      <Group title="Privacy" right={<a className="small" href="https://github.com/kadenremains/ENCORE/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">Full privacy note ↗</a>}>
+        <ul className="about-list small">
+          <li>No ads, analytics or tracking cookies. Nothing is sold or shared.</li>
+          <li>Your listening history and stats stay on this device.</li>
+          <li>Signed in, your synced wrappeds, pictures and settings are encrypted on your device; the server can’t read them. It knows your username, when you last used Encore and how much you store.</li>
+          <li>Not signed in, Last.fm requests pass through Encore’s server; only the usernames looked up are noted (with when). Use your own API key to skip the server.</li>
+          <li>Settings → Account → Delete my synced data erases everything the server has for you.</li>
+        </ul>
       </Group>
       <Group title="Where things come from">
         <ul className="about-list small">
