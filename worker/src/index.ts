@@ -20,6 +20,8 @@ import { md5 } from './md5';
  *  - POST /logout
  *  - GET  /art?type=&q=      artwork search (Deezer), so the app never runs third-party code
  *  - POST /blobs/missing, GET/PUT /blob/<id>   the encrypted picture store
+ *  - POST /auth/begin        the home-screen app registers its sign-in pickup id (and connection)
+ *  - POST /auth/confirm      the approving browser releases a pickup that came from another connection
  *  - GET  /admin/stats       owner-only usage numbers
  *  - GET  /admin/notes       owner-only behind-the-scenes version notes (kept in the database, not in this repo)
  */
@@ -78,9 +80,13 @@ async function getKeys(env: Env): Promise<Keys> {
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
 
-function originAllowed(origin: string, env: Env) {
+/** Requests to a Worker running on this computer (wrangler dev), not the live one. */
+const isLocal = (url: URL) => url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+
+function originAllowed(origin: string, env: Env, url: URL) {
   if (!origin) return false;
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  // a local copy of the app only talks to a local copy of the Worker
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return isLocal(url);
   return env.ALLOWED_ORIGINS.split(',')
     .map((s) => s.trim())
     .includes(origin);
@@ -88,7 +94,7 @@ function originAllowed(origin: string, env: Env) {
 
 function corsHeaders(req: Request, env: Env): Record<string, string> {
   const origin = req.headers.get('Origin') ?? '';
-  if (!originAllowed(origin, env)) return {};
+  if (!originAllowed(origin, env, new URL(req.url))) return {};
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -121,7 +127,13 @@ export default {
         case '/auth/start':
           return await authStart(url, env);
         case '/auth/callback':
-          return await authCallback(url, env);
+          return await authCallback(req, url, env);
+        case '/auth/begin':
+          res = req.method === 'POST' && Object.keys(cors).length ? await authBegin(req, env) : json({ error: 'not allowed' }, 405);
+          break;
+        case '/auth/confirm':
+          res = req.method === 'POST' && Object.keys(cors).length ? await authConfirm(req, env) : json({ error: 'not allowed' }, 405);
+          break;
         case '/auth/poll':
           res = await authPoll(url, env);
           break;
@@ -252,18 +264,18 @@ async function art(req: Request, url: URL) {
 
 /* ---------------- auth ---------------- */
 
-function safeRedirect(raw: string | null, env: Env): string | null {
+function safeRedirect(raw: string | null, env: Env, url: URL): string | null {
   if (!raw) return null;
   try {
     const u = new URL(raw);
-    return originAllowed(u.origin, env) ? u.origin + u.pathname : null;
+    return originAllowed(u.origin, env, url) ? u.origin + u.pathname : null;
   } catch {
     return null;
   }
 }
 
 async function authStart(url: URL, env: Env) {
-  const redirect = safeRedirect(url.searchParams.get('redirect'), env);
+  const redirect = safeRedirect(url.searchParams.get('redirect'), env, url);
   if (!redirect) return json({ error: 'bad redirect' }, 400);
   const { key, secret } = await getKeys(env);
   if (!key || !secret) return Response.redirect(`${redirect}#auth_error=not_configured`, 302);
@@ -281,8 +293,8 @@ function randomToken() {
   return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-async function authCallback(url: URL, env: Env) {
-  const redirect = safeRedirect(url.searchParams.get('redirect'), env);
+async function authCallback(req: Request, url: URL, env: Env) {
+  const redirect = safeRedirect(url.searchParams.get('redirect'), env, url);
   if (!redirect) return json({ error: 'bad redirect' }, 400);
   const token = url.searchParams.get('token');
   const { key, secret } = await getKeys(env);
@@ -301,22 +313,59 @@ async function authCallback(url: URL, env: Env) {
     env.DB.prepare('INSERT INTO users (name, display, created, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display, last_seen = excluded.last_seen').bind(name.toLowerCase(), name, now, now),
     env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(session, name.toLowerCase(), now, now),
   ];
+  let confirm = '';
   if (pending && /^[0-9a-f]{32}$/.test(pending)) {
-    // a second session for the app that's waiting (each device context gets its own token)
+    // A second session for the app that's waiting (each device context gets its own token). Whoever
+    // started a sign-in gets the account that approves it, so a sign-in link someone else made could
+    // hand them your account. It's only released by itself when the approval comes from the same
+    // connection that started it (your own phone); otherwise the approving page asks you first.
+    const begin = await env.DB.prepare('SELECT ip, created FROM auth_begin WHERE id = ?').bind(pending).first<{ ip: string; created: number }>();
+    const ip = req.headers.get('CF-Connecting-IP') ?? '';
+    const sameDevice = !!begin && !!ip && begin.ip === ip && begin.created > now - PICKUP_WINDOW;
     const waiting = randomToken();
     stmts.push(env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(waiting, name.toLowerCase(), now, now));
-    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, token, user, created) VALUES (?, ?, ?, ?)').bind(pending, waiting, name, now));
+    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, token, user, created, ready) VALUES (?, ?, ?, ?, ?)').bind(pending, waiting, name, now, sameDevice ? 1 : 0));
+    stmts.push(env.DB.prepare('DELETE FROM auth_begin WHERE id = ? OR created < ?').bind(pending, now - PICKUP_WINDOW));
+    if (!sameDevice) confirm = `&confirm=${pending}`;
   }
   await env.DB.batch(stmts);
-  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}`, 302);
+  return Response.redirect(`${redirect}#auth=${session}&user=${encodeURIComponent(name)}${confirm}`, 302);
+}
+
+const PICKUP_WINDOW = 15 * 60_000;
+
+/** The app registers its pickup id (and so its connection) before sending you to Last.fm. */
+async function authBegin(req: Request, env: Env) {
+  const ip = req.headers.get('CF-Connecting-IP') ?? '';
+  if (!allow(`begin:${ip}`, 0.5, 10)) return json({ error: 'slow down' }, 429);
+  const body = (await req.json().catch(() => ({}))) as { id?: unknown };
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
+  // OR IGNORE: an id, once registered, keeps the connection it was registered from
+  await env.DB.prepare('INSERT OR IGNORE INTO auth_begin (id, ip, created) VALUES (?, ?, ?)').bind(id, ip, Date.now()).run();
+  return json({ ok: true });
+}
+
+/**
+ * The approving browser (it alone received this sign-in's session) says yes: release the waiting
+ * app's session. Only for the same account, within the pickup window.
+ */
+async function authConfirm(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const body = (await req.json().catch(() => ({}))) as { id?: unknown };
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
+  const r = await env.DB.prepare('UPDATE auth_pending SET ready = 1 WHERE id = ? AND lower(user) = ? AND token IS NOT NULL AND created > ?').bind(id, user, Date.now() - PICKUP_WINDOW).run();
+  return r.meta.changes ? json({ ok: true }) : json({ error: 'expired' }, 410);
 }
 
 /** The app polls this with the random id it started sign-in with; one-time pickup, 15 min window. */
 async function authPoll(url: URL, env: Env) {
   const id = url.searchParams.get('id') ?? '';
   if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
-  const old = Date.now() - 15 * 60_000;
-  const row = await env.DB.prepare('SELECT token, user, created FROM auth_pending WHERE id = ? AND token IS NOT NULL').bind(id).first<{ token: string; user: string; created: number }>();
+  const old = Date.now() - PICKUP_WINDOW;
+  const row = await env.DB.prepare('SELECT token, user, created FROM auth_pending WHERE id = ? AND token IS NOT NULL AND ready = 1').bind(id).first<{ token: string; user: string; created: number }>();
   if (!row) return json({ pending: true });
   await env.DB.prepare('DELETE FROM auth_pending WHERE id = ? OR created < ?').bind(id, old).run();
   if (row.created < old) return json({ pending: true });

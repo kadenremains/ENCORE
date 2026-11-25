@@ -296,6 +296,10 @@ export function startSignIn() {
     /* ignore */
   }
   useCloud.setState({ waiting: true });
+  // Register the pickup id (and so this connection) first: the server only hands the sign-in back
+  // by itself when the approval comes from the same connection. Plain text = no pre-flight, and
+  // keepalive lets it finish even as this page leaves for Last.fm.
+  void fetch(`${API_URL}/auth/begin`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ id }) }).catch(() => {});
   if (isStandalone()) {
     // iPhone home-screen apps open links in a little browser of their own, where Last.fm's login
     // form fails. Open the page in Safari itself instead (where you're usually logged in to
@@ -419,10 +423,13 @@ export function consumeAuthRedirect(): { user?: string; error?: string; handoff?
   } catch {
     /* ignore */
   }
-  // Sign-in started in the iPhone home-screen app and finished in Safari (or the app's sign-in view):
-  // the app collects it by itself, so this page only says "go back" instead of opening a second Encore.
-  if (!startedHere && isIOS() && !isStandalone()) {
-    handoff = { token, user };
+  // Sign-in started somewhere else (the iPhone home-screen app, which collects it by itself) and
+  // finished here: say "go back" instead of opening a second Encore. If the server held the pickup
+  // (the approval came from a different connection), this page asks before releasing it.
+  const confirm = params.get('confirm');
+  const needsConfirm = !!confirm && /^[0-9a-f]{32}$/.test(confirm);
+  if (!startedHere && (needsConfirm || (isIOS() && !isStandalone()))) {
+    handoff = { token, user, confirm: needsConfirm ? confirm : null };
     return { user, handoff: true };
   }
   if (startedHere) LS.set(PENDING, null);
@@ -430,7 +437,18 @@ export function consumeAuthRedirect(): { user?: string; error?: string; handoff?
   return { user };
 }
 
-let handoff: { token: string; user: string } | null = null;
+let handoff: { token: string; user: string; confirm: string | null } | null = null;
+
+/** The "go back to the app" page has to ask before the app gets signed in. */
+export const handoffNeedsConfirm = () => !!handoff?.confirm;
+
+/** "Yes, that was me": release the sign-in to the app that's waiting for it. */
+export async function confirmHandoff(): Promise<void> {
+  if (!handoff?.confirm || !API_URL) return;
+  const r = await fetch(`${API_URL}/auth/confirm`, { method: 'POST', headers: { Authorization: `Bearer ${handoff.token}`, 'Content-Type': 'text/plain' }, body: JSON.stringify({ id: handoff.confirm }) });
+  if (!r.ok) throw new Error(r.status === 410 ? 'This sign-in expired. Start it again from the app.' : 'Couldn’t reach Encore. Try again.');
+  handoff.confirm = null;
+}
 
 /** On the "go back to the app" page: use Encore here in Safari instead. */
 export function continueSignInHere() {
