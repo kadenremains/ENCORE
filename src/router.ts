@@ -11,7 +11,7 @@ export type Route =
   | { name: 'entity'; kind: EntityKind; artist: string; title: string }
   | { name: 'history'; view: 'scrobbles' | 'patterns' }
   | { name: 'records' }
-  | { name: 'compare'; friend?: string }
+  | { name: 'compare'; friend: string }
   | { name: 'friends' }
   | { name: 'friend'; who: string }
   | { name: 'friendEntity'; who: string; kind: EntityKind; artist: string; title: string }
@@ -90,7 +90,7 @@ export function routePath(r: Route): string {
     case 'records':
       return '#/records';
     case 'compare':
-      return r.friend ? `#/compare/${enc(r.friend)}` : '#/friends';
+      return `#/compare/${enc(r.friend)}`;
     case 'friends':
       return '#/friends';
     case 'friend':

@@ -6,6 +6,10 @@ Encore is a personal project. It has no ads, no analytics, no tracking cookies, 
 
 Your downloaded Last.fm history, every stat, your wrappeds, custom pictures and settings live in your browser's storage. Clearing the site's data (or **Settings → Account → Disconnect**) deletes them.
 
+## Friends and people you look up
+
+Last.fm profiles are public, so looking someone up or comparing with them needs nothing from them. What Encore downloads about them (their top lists, and their history if you load it) stays on your device only, is never uploaded or synced, and is deleted a day after you last look at them (or straight away with **Delete now**). Your friends list (their usernames and profile pictures) syncs between your devices when you're signed in. A "You vs." wrapped saves only who it compares you with; the comparison is loaded fresh each time it's opened. Usernames you look up pass through Encore's server like any other Last.fm request.
+
 ## On Encore's server (Cloudflare)
 
 **If you sign in with Last.fm** (to sync between devices):

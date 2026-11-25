@@ -10,7 +10,7 @@ import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
 import { MismatchNote } from '../Cleanup';
 import { PlaysList } from './History';
-import { VsFriends } from '../FriendStrip';
+import { VsFriends } from '../FriendBits';
 import { useApp } from '../../store';
 import { albumKey } from '../../lib/library';
 
@@ -23,7 +23,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
   if (idx < 0)
     return (
       <div className="page">
-        <p className="empty">Couldn't find “{title}” in your history.</p>
+        <p className="empty">Couldn't find “{title}” in {scope ? `${scope.who}’s` : 'your'} history.</p>
         <a className="more" href={routePath({ name: 'top', kind })}>
           Back to {KIND_LABEL[kind].many}
         </a>

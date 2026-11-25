@@ -7,7 +7,7 @@ A much prettier, much deeper view of your Last.fm stats, plus fully customizable
 - **Overview:** headline numbers with ▲▼ vs the previous period or the same time last year, top artists/albums/songs with rank movement, listening over time, a day-by-day heatmap, hour and weekday charts, highlights (biggest day, streaks, obsession), discoveries, and your #1 every month.
 - **Artists / Albums / Songs:** full ranked charts with search and sorting (most played, climbing, falling, new, newest discoveries), share of plays and first-heard dates.
 - **A page for every artist, album and song:** rank and movement, plays in range vs all time, first and last listen, an all-time monthly chart, top songs and albums, favourite hour and day, a day-by-day heatmap, and a custom image.
-- **Listening:** timeline by day/week/month/year, hour × weekday punchcard, a heatmap per year, biggest days, month by month, streaks and longest silence.
+- **History:** every scrobble in the range, newest first and grouped by day, with search and jump-to-date; plays shown under a merged or fixed name say what Last.fm has. **Patterns:** timeline by day/week/month/year, hour × weekday punchcard, a heatmap per year, biggest days, month by month, streaks and longest silence.
 - **Records (all time):** biggest day/week/month/year, streaks, scrobble milestones, year-by-year table, eras.
 
 The date range and comparison mode are shared across every page and remembered. A period that's still going (this year, this month) is compared with the same stretch of the earlier one, e.g. Jan 1 – today vs Jan 1 – this day last year.
@@ -16,6 +16,8 @@ The date range and comparison mode are shared across every page and remembered. 
 - **Singles:** albums you've only played one song from are treated as singles and left out of album stats. Last.fm's track list decides first; if Last.fm doesn't know the album, your scrobbles do. Play a second song and it's an album again. Change it or keep specific ones at the bottom of the Albums page.
 - **Album artists:** albums are credited the way Last.fm groups them (compilations, albums whose songs are by a featured artist).
 - **Last.fm edits:** scrobbles you edit or delete on Last.fm (Pro) are picked up: the last two weeks on every sync, older months a few at a time in the background, or all at once from the menu.
+- **Clean up:** finds songs, albums and artists scrobbled under different names (a single and its album, deluxe editions, "feat.", spellings, no album) and garbled names, to merge in Encore or fix on Last.fm.
+- **Friends:** your Last.fm friends (and anyone you add); tap one for all their stats and their own artist, album and song pages, or compare: match score, shared artists/songs/albums, who found what first, habits side by side, match over time, and a "You vs." wrapped.
 
 ## Settings
 
@@ -26,7 +28,8 @@ Open from the profile menu (top right). Tabs:
 - **Albums & singles:** the singles switch with every single listed (and the ones you kept as albums), refresh Last.fm's album grouping, re-check singles.
 - **Images:** online picture lookups on/off, pictures in lists, "My picture", and every custom picture.
 - **Appearance:** palettes (Vault, Black, Midnight, Darkroom, Paper), seven accent colors, text size, film grain, animations.
-- **Data & storage:** what's stored on the device, backup to a file and restore, re-download your history, clear caches.
+- **Clean up:** mismatched and garbled scrobbles, merges you've made.
+- **Data & storage:** what's stored on the device and where the space goes, backup to a file and restore, re-download your history, clear caches.
 - **About:** version and update check, data sources, wrapped editor shortcuts.
 
 Settings sync between devices when you're signed in.

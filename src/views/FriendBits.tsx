@@ -15,26 +15,6 @@ export function FriendAvatar({ f, size = 30 }: { f: { name: string; image?: stri
   );
 }
 
-/** Overview: your friends (tap one for their stats), and the way to the Friends page. */
-export function FriendStrip() {
-  const demo = useApp((s) => s.demo);
-  const list = useFriends((s) => s.list);
-  if (demo) return null;
-  return (
-    <div className="friend-strip">
-      <a className="btn small" href={routePath({ name: 'friends' })}>
-        ⇄ Friends
-      </a>
-      {list.slice(0, 6).map((f) => (
-        <a key={f.name} className="friend-chip" href={routePath({ name: 'friend', who: f.name })} title={`${f.name}’s stats`}>
-          <FriendAvatar f={f} size={26} />
-          <span>{f.name}</span>
-        </a>
-      ))}
-    </div>
-  );
-}
-
 /**
  * On an artist / album / song page: how many times your recent friends have played it. Artists use
  * their all-time top list (fetched when you compared); albums and songs need their full history.

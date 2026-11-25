@@ -6,57 +6,33 @@ import { EntityImg, fmtNum } from '../render/primitives';
 import { BarChart, Panel } from '../ui/charts';
 import { usePrefs, fmtHourPref } from '../lib/prefs';
 import { WEEKDAYS } from '../ui/charts';
-import {
-  FriendError,
-  KEEP_FOR,
-  cancelDownload,
-  downloadHistory,
-  addFriend,
-  historyState,
-  refreshFriendImage,
-  removeFriend,
-  removeHistory,
-  useDownloads,
-  useFriends,
-  type HistoryState,
-} from '../lib/friends';
+import { FriendError, KEEP_FOR, addFriend, refreshFriendImage, removeFriend, useFriends } from '../lib/friends';
+import { useFriendHistory } from './useFriendHistory';
 import { type Comparison, type Habits, type Side } from '../lib/compare';
 import { runComparison, type ComparisonResult } from '../lib/compareRun';
-import { FriendAvatar } from './FriendStrip';
+import { FriendAvatar } from './FriendBits';
+import { ItsYou } from './Friends';
 import { fillVersus, makeVersusProject } from '../editor/versus';
 import { openVersusFilled } from '../editor/versusOpen';
 import { projectsDb } from '../lib/picStore';
 import { localChanged } from '../lib/changes';
 
-/** You vs someone: #/compare/<name>. Picking someone is on the Friends page (#/friends). */
-export function Compare({ friend }: { friend?: string }) {
-  useEffect(() => {
-    if (!friend) navigate({ name: 'friends' });
-  }, [friend]);
-  return friend ? <Versus name={friend} /> : null;
+/** You vs someone (#/compare/<name>). Picking someone is on the Friends page. */
+export function Compare({ friend: name }: { friend: string }) {
+  const me = useApp((s) => s.username);
+  if (name.toLowerCase() === me.toLowerCase()) return <ItsYou />;
+  return <Versus name={name} />;
 }
-
-/* ------------------------------------------------------------------ you vs them */
 
 function Versus({ name }: { name: string }) {
   const { lib, spec, label } = useRangeStats();
   const apiKey = useApp((s) => s.apiKey);
   const fixes = useApp((s) => s.albumPrefs.fixes);
-  const running = useDownloads((s) => s.running[name.toLowerCase()]);
-  const [hist, setHist] = useState<HistoryState | null | undefined>(undefined);
+  const history = useFriendHistory(name, false);
+  const { hist, running } = history;
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [err, setErr] = useState<FriendError | Error | null>(null);
   const [reload, setReload] = useState(0);
-
-  // (re-read when a download of their history finishes, wherever it was started)
-  useEffect(() => {
-    if (running) return;
-    let live = true;
-    void historyState(name).then((h) => live && setHist(h ?? null));
-    return () => {
-      live = false;
-    };
-  }, [name, reload, running]);
 
   // their full history if you downloaded it (any range), else Last.fm's top lists
   useEffect(() => {
@@ -75,14 +51,7 @@ function Versus({ name }: { name: string }) {
     };
   }, [hist, running, lib, spec, name, apiKey, fixes, reload]);
 
-  const getFull = async () => {
-    try {
-      await downloadHistory(name, apiKey);
-      setHist((await historyState(name)) ?? null);
-    } catch (e) {
-      setErr(e as Error);
-    }
-  };
+  const getFull = hist ? history.update : history.load;
 
   if (err && !result) {
     return (
@@ -142,7 +111,7 @@ function Versus({ name }: { name: string }) {
             Make a wrapped
           </button>
           <FriendButton name={them.name} image={them.image} />
-          <FullHistoryButton name={name} hist={hist ?? null} running={running} onGet={getFull} onRemoved={() => setHist(null)} />
+          <FullHistoryButton name={name} history={history} />
           <a className="btn small ghost" href={routePath({ name: 'friend', who: them.name })}>
             {them.name}’s stats
           </a>
@@ -152,7 +121,7 @@ function Versus({ name }: { name: string }) {
       </section>
 
       <Panel title="Shared artists" right={<span className="muted small">{fmtNum(cmp.sharedArtists.length)} in common</span>}>
-        <SharedList items={cmp.sharedArtists} kind="artist" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} />
+        <SharedList items={cmp.sharedArtists} kind="artist" them={them.name} meTotal={me.total} themTotal={them.total} />
       </Panel>
 
       <Panel title="Who found it first">
@@ -171,10 +140,10 @@ function Versus({ name }: { name: string }) {
 
       <div className="grid2">
         <Panel title="Songs you both have on repeat">
-          <SharedList items={cmp.sharedTracks.slice(0, 12)} kind="track" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} compact />
+          <SharedList items={cmp.sharedTracks.slice(0, 12)} kind="track" them={them.name} meTotal={me.total} themTotal={them.total} compact />
         </Panel>
         <Panel title="Albums you both love">
-          <SharedList items={cmp.sharedAlbums.slice(0, 10)} kind="album" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} compact />
+          <SharedList items={cmp.sharedAlbums.slice(0, 10)} kind="album" them={them.name} meTotal={me.total} themTotal={them.total} compact />
         </Panel>
       </div>
 
@@ -238,35 +207,34 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-function FullHistoryButton({ name, hist, running, onGet, onRemoved }: { name: string; hist: HistoryState | null; running?: { done: number; total: number }; onGet: () => void; onRemoved: () => void }) {
+function FullHistoryButton({ name, history }: { name: string; history: ReturnType<typeof useFriendHistory> }) {
+  const { hist, running } = history;
   if (running)
     return (
       <span className="row gap">
         <span className="muted small">
           Downloading {name}’s history… {running.total ? `${Math.round((running.done / running.total) * 100)}%` : ''}
         </span>
-        <button className="mini-btn" onClick={() => cancelDownload(name)}>
+        <button className="mini-btn" onClick={history.stop}>
           Stop
         </button>
       </span>
     );
   if (!hist)
     return (
-      <button className="btn small" onClick={onGet}>
+      <button className="btn small" onClick={history.load}>
         Get their full history
       </button>
     );
   return (
     <span className="row gap">
-      <button className="btn small" onClick={onGet} title={`${fmtNum(hist.plays)} plays, updated ${new Date(hist.at).toLocaleDateString()}`}>
+      <button className="btn small" onClick={history.update} title={`${fmtNum(hist.plays)} plays, updated ${new Date(hist.at).toLocaleDateString()}`}>
         Update their history
       </button>
       <button
         className="mini-btn"
-        onClick={async () => {
-          if (!confirm(`Delete ${name}’s downloaded history from this device?`)) return;
-          await removeHistory(name);
-          onRemoved();
+        onClick={() => {
+          if (confirm(`Delete ${name}’s downloaded history from this device?`)) void history.remove();
         }}
       >
         Remove it
@@ -288,7 +256,7 @@ function NeedsFull({ text, name, running, onGet }: { text: string; name: string;
   );
 }
 
-function SharedList({ items, kind, them, meTotal, themTotal, compact }: { items: Comparison['sharedArtists']; kind: 'artist' | 'album' | 'track'; me: string; them: string; meTotal: number; themTotal: number; compact?: boolean }) {
+function SharedList({ items, kind, them, meTotal, themTotal, compact }: { items: Comparison['sharedArtists']; kind: 'artist' | 'album' | 'track'; them: string; meTotal: number; themTotal: number; compact?: boolean }) {
   const [limit, setLimit] = useState(compact ? 12 : 15);
   const listImages = usePrefs((p) => p.listImages);
   // shares of each person's listening, on one scale: someone who scrobbles 6x as much doesn't swamp the bars

@@ -51,7 +51,8 @@ function AllScrobbles() {
           </button>
         )}
       </div>
-      <ScrobbleList lo={stats.lo} hi={stats.hi} q={q} jump={jump} empty={q ? `No scrobbles match “${q}” in ${label}.` : `No scrobbles in ${label} yet. Pick another range above.`} />
+      {/* a new search / jump / range starts from the top of the list again */}
+      <ScrobbleList key={`${stats.lo}|${stats.hi}|${q}|${jump}`} lo={stats.lo} hi={stats.hi} q={q} jump={jump} empty={q ? `No scrobbles match “${q}” in ${label}.` : `No scrobbles in ${label} yet. Pick another range above.`} />
     </>
   );
 }
@@ -59,7 +60,7 @@ function AllScrobbles() {
 /** On a song, album or artist page: your plays of it in the range. */
 export function PlaysList({ kind, idx }: { kind: EntityKind; idx: number }) {
   const { stats, label } = useRangeStats();
-  return <ScrobbleList lo={stats.lo} hi={stats.hi} kind={kind} idx={idx} pageSize={50} empty={`No plays in ${label}.`} showArtist={kind !== 'artist'} />;
+  return <ScrobbleList key={`${stats.lo}|${stats.hi}|${kind}|${idx}`} lo={stats.lo} hi={stats.hi} kind={kind} idx={idx} pageSize={50} empty={`No plays in ${label}.`} showArtist={kind !== 'artist'} />;
 }
 
 /* ------------------------------------------------------------------ the list */
@@ -151,20 +152,15 @@ function ScrobbleList({
     // jump: start the list at the end of that day
     let start = 0;
     if (jump) {
-      const end = new Date(`${jump}T00:00:00`).getTime() / 1000 + 86400;
+      // the end of that day, local time (a day isn't always 24 hours: clock changes)
+      const [y, m, d] = jump.split('-').map(Number);
+      const end = new Date(y, m - 1, d + 1).getTime() / 1000;
       while (start < out.length && lib.ts[out[start]] >= end) start++;
     }
     return { plays: out, perDay, start };
   }, [lib, lo, hi, kind, idx, q, jump]);
 
   const inBatch = useMemo(() => batchChecker(lib), [lib]);
-  // a new search / jump / range starts from the top of the list again
-  const key = `${lo}|${hi}|${q}|${jump}`;
-  const [shownFor, setShownFor] = useState(key);
-  if (shownFor !== key) {
-    setShownFor(key);
-    setLimit(pageSize);
-  }
 
   if (!plays.length) return <p className="empty">{empty}</p>;
   if (start >= plays.length) return <p className="empty">Nothing on or before that day here.</p>;

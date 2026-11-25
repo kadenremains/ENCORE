@@ -941,6 +941,7 @@ function AboutTab() {
           <li>Your listening history and stats stay on this device.</li>
           <li>Signed in, your synced wrappeds, pictures and settings are encrypted on your device before upload, and the key is kept apart from the database. The server knows your username, when you last used Encore and how much you store.</li>
           <li>Not signed in, Last.fm requests pass through Encore’s server; only the usernames looked up are noted (with when). Use your own API key to skip the server.</li>
+          <li>Friends and people you look up: what Encore downloads about them stays on this device and is deleted a day after you last look. Only your friends list (usernames) syncs.</li>
           <li>Settings → Account → Delete my synced data erases everything the server has for you.</li>
         </ul>
       </Group>

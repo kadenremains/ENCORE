@@ -1,41 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useApp } from '../store';
 import { navigate, parseRoute, routePath } from '../router';
-import { LibScope, useRangeStats } from './stats/useRangeStats';
+import { LibScope, useRangeStats, withoutBreaks } from './stats/useRangeStats';
+import { useFriendHistory } from './useFriendHistory';
 import { EntityView } from './stats/EntityView';
 import { BarChart, CalendarHeatmap, Kpi, Ledger, Panel, Punchcard, fmtDay, type LedgerItem } from '../ui/charts';
 import { fmtNum } from '../render/primitives';
 import { fmtHourPref } from '../lib/prefs';
-import { getStats, type Library, type RangeStats } from '../lib/library';
+import { getStats, type RangeStats } from '../lib/library';
 import { PERIOD_LABEL, nearestPeriod } from '../lib/compare';
 import {
   addFriend,
-  cancelDownload,
-  downloadHistory,
   fetchFriendInfo,
-  friendLibrary,
-  historyState,
-  markViewed,
   quickLists,
   refreshFriendImage,
   removeFriend,
-  removeHistory,
   syncLastfmFriends,
-  useDownloads,
   useFriendSync,
   useFriends,
-  type HistoryState,
   type QuickLists,
 } from '../lib/friends';
 import type { TopEntry } from '../lib/lastfm';
 import type { EntityKind, UserInfo } from '../lib/types';
-import { FriendAvatar } from './FriendStrip';
+import { FriendAvatar } from './FriendBits';
 
 /* ------------------------------------------------------------------ #/friends */
 
 /** Your friends, and looking anyone up. Tap a name for their stats; Compare for you vs them. */
 export function Friends() {
   const demo = useApp((s) => s.demo);
+  const me = useApp((s) => s.username);
   const apiKey = useApp((s) => s.apiKey);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,6 +37,7 @@ export function Friends() {
   const look = async () => {
     const n = name.trim();
     if (!/^[\w.-]{2,30}$/.test(n)) return setErr('That isn’t a Last.fm username.');
+    if (n.toLowerCase() === me.toLowerCase()) return setErr('That’s you: your own stats are everywhere else in Encore.');
     setBusy(true);
     setErr('');
     try {
@@ -136,17 +131,33 @@ function FriendsList() {
  * once their history has downloaded (started by itself; kept a day after you last look).
  */
 export function FriendProfile({ name }: { name: string }) {
-  const { lib: myLib, range, label } = useRangeStats();
+  const me = useApp((s) => s.username);
+  if (name.toLowerCase() === me.toLowerCase()) return <ItsYou />;
+  return <TheirProfile name={name} />;
+}
+
+/** Someone's page opened for your own name: your stats are the rest of the app. */
+export function ItsYou() {
+  return (
+    <div className="page">
+      <p className="empty">That’s you: your own stats are everywhere else in Encore.</p>
+      <div className="row center">
+        <a className="btn" href={routePath({ name: 'overview' })}>
+          Your overview
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function TheirProfile({ name }: { name: string }) {
+  const { range, label } = useRangeStats();
   const apiKey = useApp((s) => s.apiKey);
-  const fixes = useApp((s) => s.albumPrefs.fixes);
-  const running = useDownloads((s) => s.running[name.toLowerCase()]);
   const friend = useFriends((s) => s.list.find((f) => f.name.toLowerCase() === name.toLowerCase()));
+  const history = useFriendHistory(name, true);
   const [info, setInfo] = useState<UserInfo | null>(null);
-  const [hist, setHist] = useState<HistoryState | null | undefined>(undefined);
-  const [theirLib, setTheirLib] = useState<Library | null>(null);
   const [quick, setQuick] = useState<QuickLists | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [stopped, setStopped] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -157,44 +168,15 @@ export function FriendProfile({ name }: { name: string }) {
         refreshFriendImage(i.name, i.image);
       })
       .catch((e) => live && setErr((e as Error).message));
-    void markViewed(name);
-    void historyState(name).then((h) => live && setHist(h ?? null));
     return () => {
       live = false;
     };
   }, [name, apiKey]);
 
-  // all their stats: their history, downloaded by itself the first time (once per visit; you can stop it)
-  const started = useRef(false);
-  useEffect(() => {
-    if (hist !== null || running || !info || stopped || started.current) return;
-    started.current = true;
-    downloadHistory(name, apiKey).catch((e) => setErr((e as Error).message));
-  }, [hist, running, info, name, apiKey, stopped]);
-
-  // a download (this one, or one started elsewhere) just finished: pick it up
-  useEffect(() => {
-    if (running) return;
-    let live = true;
-    void historyState(name).then((h) => live && setHist(h ?? null));
-    return () => {
-      live = false;
-    };
-  }, [running, name]);
-
-  useEffect(() => {
-    if (!hist) return;
-    let live = true;
-    void friendLibrary(name, fixes).then((l) => live && setTheirLib(l));
-    return () => {
-      live = false;
-    };
-  }, [hist, name, fixes]);
-
-  // meanwhile (or if you stopped it): Last.fm's top lists for the nearest period
+  // until their history is in (or if you stopped it): Last.fm's top lists for the nearest period
   const near = useMemo(() => nearestPeriod(range), [range]);
   useEffect(() => {
-    if (theirLib || !info) return;
+    if (history.lib || !info) return;
     let live = true;
     quickLists(name, near.period, apiKey)
       .then((q) => live && setQuick(q))
@@ -202,10 +184,10 @@ export function FriendProfile({ name }: { name: string }) {
     return () => {
       live = false;
     };
-  }, [theirLib, info, name, near.period, apiKey]);
+  }, [history.lib, info, name, near.period, apiKey]);
 
   // your "skip breaks" setting doesn't cut their stats
-  const stats = useMemo(() => (theirLib ? getStats(theirLib, { from: range.from, to: range.to }) : null), [theirLib, range]);
+  const stats = useMemo(() => (history.lib ? getStats(history.lib, withoutBreaks(range)) : null), [history.lib, range]);
 
   if (err && !info) {
     return (
@@ -220,9 +202,8 @@ export function FriendProfile({ name }: { name: string }) {
     );
   }
   const shownName = info?.name ?? name;
-  // their artists, albums and songs open their own pages (their history, like it was their account)
-  const myLink = (kind: EntityKind, n: string, a: string) => routePath({ name: 'friendEntity', who: shownName, kind, artist: a, title: n });
-  void myLib;
+  // their artists, albums and songs open their own pages (their history, as if it were their account)
+  const theirLink: LinkFor = (kind, n, a) => routePath({ name: 'friendEntity', who: shownName, kind, artist: a, title: n });
 
   return (
     <div className="page friend-profile">
@@ -258,34 +239,13 @@ export function FriendProfile({ name }: { name: string }) {
         </div>
       </section>
 
-      <HistoryStatus
-        name={shownName}
-        hist={hist ?? null}
-        running={running}
-        stopped={stopped}
-        onStop={() => {
-          setStopped(true);
-          cancelDownload(name);
-        }}
-        onGet={() => {
-          started.current = false;
-          setStopped(false);
-        }}
-        onUpdate={() => {
-          downloadHistory(name, apiKey).catch((e) => setErr((e as Error).message));
-        }}
-        onRemove={async () => {
-          await removeHistory(name);
-          setTheirLib(null);
-          setStopped(true);
-          setHist(null);
-        }}
-      />
+      <HistoryStatus name={shownName} history={history} />
+      {(history.err || (err && info)) && <p className="error small">{history.err ?? err}</p>}
 
       {stats ? (
-        <FullStats stats={stats} label={label} myLink={myLink} />
+        <FullStats stats={stats} label={label} link={theirLink} />
       ) : quick ? (
-        <QuickStats q={quick} note={near.exact ? PERIOD_LABEL[near.period] : `${PERIOD_LABEL[near.period]} (Last.fm’s nearest to ${label})`} myLink={myLink} />
+        <QuickStats q={quick} note={near.exact ? PERIOD_LABEL[near.period] : `${PERIOD_LABEL[near.period]} (Last.fm’s nearest to ${label})`} link={theirLink} />
       ) : (
         <div className="center-screen">
           <span className="spinner big" />
@@ -295,7 +255,8 @@ export function FriendProfile({ name }: { name: string }) {
   );
 }
 
-function HistoryStatus({ name, hist, running, stopped, onStop, onGet, onUpdate, onRemove }: { name: string; hist: HistoryState | null; running?: { done: number; total: number }; stopped: boolean; onStop: () => void; onGet: () => void; onUpdate: () => void; onRemove: () => void }) {
+function HistoryStatus({ name, history }: { name: string; history: ReturnType<typeof useFriendHistory> }) {
+  const { hist, running, stopped } = history;
   if (running)
     return (
       <div className="history-status">
@@ -305,7 +266,7 @@ function HistoryStatus({ name, hist, running, stopped, onStop, onGet, onUpdate, 
         <span className="progress">
           <span style={{ width: `${running.total ? (running.done / running.total) * 100 : 3}%` }} />
         </span>
-        <button className="mini-btn" onClick={onStop}>
+        <button className="mini-btn" onClick={history.stop}>
           Stop
         </button>
       </div>
@@ -313,9 +274,9 @@ function HistoryStatus({ name, hist, running, stopped, onStop, onGet, onUpdate, 
   if (!hist)
     return (
       <div className="history-status">
-        <span className="muted small">{stopped ? `Showing ${name}’s top lists only.` : `Getting ${name}’s history…`}</span>
-        {stopped && (
-          <button className="mini-btn" onClick={onGet}>
+        <span className="muted small">{stopped || history.err ? `Showing ${name}’s top lists only.` : `Getting ${name}’s history…`}</span>
+        {(stopped || history.err) && (
+          <button className="mini-btn" onClick={history.load}>
             Load all their stats
           </button>
         )}
@@ -327,10 +288,10 @@ function HistoryStatus({ name, hist, running, stopped, onStop, onGet, onUpdate, 
         All {fmtNum(hist.plays)} scrobbles, as of {new Date(hist.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. Deleted from this device a day after you last look.
       </span>
       <span className="row gap">
-        <button className="mini-btn" onClick={onUpdate}>
+        <button className="mini-btn" onClick={history.update}>
           Update
         </button>
-        <button className="mini-btn" onClick={onRemove}>
+        <button className="mini-btn" onClick={() => void history.remove()}>
           Delete now
         </button>
       </span>
@@ -338,24 +299,24 @@ function HistoryStatus({ name, hist, running, stopped, onStop, onGet, onUpdate, 
   );
 }
 
-type LinkFor = (kind: EntityKind, name: string, artist: string) => string | undefined;
+type LinkFor = (kind: EntityKind, name: string, artist: string) => string;
 
-function itemsFromStats(stats: RangeStats, kind: EntityKind, n: number, myLink: LinkFor): LedgerItem[] {
+function itemsFromStats(stats: RangeStats, kind: EntityKind, n: number, link: LinkFor): LedgerItem[] {
   const lib = stats.lib;
   const rows = stats.ranking(kind).slice(0, n);
   const max = rows[0]?.count ?? 1;
   return rows.map((r, i) => {
     const name = kind === 'artist' ? lib.artists[r.idx].name : kind === 'album' ? lib.albums[r.idx].name : lib.tracks[r.idx].name;
     const artist = kind === 'artist' ? name : kind === 'album' ? lib.artists[lib.albums[r.idx].artist].name : lib.artists[lib.tracks[r.idx].artist].name;
-    return { key: `${kind}${r.idx}`, rank: i + 1, kind, name, artist, meta: kind === 'artist' ? `${((r.count / Math.max(1, stats.total)) * 100).toFixed(1)}% of plays` : artist, value: r.count, frac: r.count / max, href: myLink(kind, name, artist) };
+    return { key: `${kind}${r.idx}`, rank: i + 1, kind, name, artist, meta: kind === 'artist' ? `${((r.count / Math.max(1, stats.total)) * 100).toFixed(1)}% of plays` : artist, value: r.count, frac: r.count / max, href: link(kind, name, artist) };
   });
 }
 
-function itemsFromTop(list: TopEntry[], kind: EntityKind, n: number, myLink: LinkFor): LedgerItem[] {
+function itemsFromTop(list: TopEntry[], kind: EntityKind, n: number, link: LinkFor): LedgerItem[] {
   const max = list[0]?.plays ?? 1;
   return list.slice(0, n).map((x, i) => {
     const artist = kind === 'artist' ? x.name : x.artist;
-    return { key: `${kind}${i}`, rank: i + 1, kind, name: x.name, artist, meta: kind === 'artist' ? undefined : artist, value: x.plays, frac: x.plays / max, href: myLink(kind, x.name, artist) };
+    return { key: `${kind}${i}`, rank: i + 1, kind, name: x.name, artist, meta: kind === 'artist' ? undefined : artist, value: x.plays, frac: x.plays / max, href: link(kind, x.name, artist) };
   });
 }
 
@@ -381,7 +342,7 @@ function TopPanels({ items }: { items: (n: number) => Record<EntityKind, LedgerI
   );
 }
 
-function FullStats({ stats, label, myLink }: { stats: RangeStats; label: string; myLink: LinkFor }) {
+function FullStats({ stats, label, link }: { stats: RangeStats; label: string; link: LinkFor }) {
   if (!stats.total) return <p className="empty">No scrobbles in {label}.</p>;
   const tl = stats.timeline('auto');
   const streak = stats.longestStreak();
@@ -402,7 +363,7 @@ function FullStats({ stats, label, myLink }: { stats: RangeStats; label: string;
         <Kpi value={fmtNum(stats.discoveries('artist').length)} label="New artists" />
         <Kpi value={fmtHourPref(peak)} label="Favourite hour" />
       </div>
-      <TopPanels items={(n) => ({ artist: itemsFromStats(stats, 'artist', n, myLink), album: itemsFromStats(stats, 'album', n, myLink), track: itemsFromStats(stats, 'track', n, myLink) })} />
+      <TopPanels items={(n) => ({ artist: itemsFromStats(stats, 'artist', n, link), album: itemsFromStats(stats, 'album', n, link), track: itemsFromStats(stats, 'track', n, link) })} />
       <Panel title="Over time">
         <BarChart height={160} data={tl.map((t, i) => ({ label: t.label, value: t.value, axis: i % Math.max(1, Math.ceil(tl.length / 8)) === 0 ? t.label : '' }))} />
       </Panel>
@@ -445,7 +406,7 @@ function FullStats({ stats, label, myLink }: { stats: RangeStats; label: string;
   );
 }
 
-function QuickStats({ q, note, myLink }: { q: QuickLists; note: string; myLink: LinkFor }) {
+function QuickStats({ q, note, link }: { q: QuickLists; note: string; link: LinkFor }) {
   const plays = q.artists.reduce((n, a) => n + a.plays, 0);
   return (
     <>
@@ -456,7 +417,7 @@ function QuickStats({ q, note, myLink }: { q: QuickLists; note: string; myLink: 
         <Kpi value={fmtNum(q.albums.length)} label="Albums" sub={q.albums.length >= 1000 ? 'top 1,000' : undefined} />
         <Kpi value={fmtNum(q.tracks.length)} label="Songs" sub={q.tracks.length >= 1000 ? 'top 1,000' : undefined} />
       </div>
-      <TopPanels items={(n) => ({ artist: itemsFromTop(q.artists, 'artist', n, myLink), album: itemsFromTop(q.albums, 'album', n, myLink), track: itemsFromTop(q.tracks, 'track', n, myLink) })} />
+      <TopPanels items={(n) => ({ artist: itemsFromTop(q.artists, 'artist', n, link), album: itemsFromTop(q.albums, 'album', n, link), track: itemsFromTop(q.tracks, 'track', n, link) })} />
     </>
   );
 }
@@ -468,43 +429,18 @@ function QuickStats({ q, note, myLink }: { q: QuickLists; note: string; myLink: 
  * (as if it were their account). Links on the page stay in their account; your own settings, Clean
  * up notes and friends' plays are left off.
  */
-export function FriendEntity({ who, kind, artist, title }: { who: string; kind: EntityKind; artist: string; title: string }) {
-  const apiKey = useApp((s) => s.apiKey);
-  const fixes = useApp((s) => s.albumPrefs.fixes);
-  const running = useDownloads((s) => s.running[who.toLowerCase()]);
-  const [hist, setHist] = useState<HistoryState | null | undefined>(undefined);
-  const [lib, setLib] = useState<Library | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const started = useRef(false);
+export function FriendEntity(props: { who: string; kind: EntityKind; artist: string; title: string }) {
+  const me = useApp((s) => s.username);
+  // your own name: your own page
+  if (props.who.toLowerCase() === me.toLowerCase()) return <EntityView kind={props.kind} title={props.title} artist={props.artist} />;
+  return <TheirEntity {...props} />;
+}
 
-  useEffect(() => {
-    void markViewed(who);
-  }, [who]);
-  // their history is needed for these pages: loaded by itself the first time
-  useEffect(() => {
-    if (running) return;
-    let live = true;
-    void historyState(who).then((h) => live && setHist(h ?? null));
-    return () => {
-      live = false;
-    };
-  }, [running, who]);
-  useEffect(() => {
-    if (hist !== null || running || started.current) return;
-    started.current = true;
-    downloadHistory(who, apiKey).catch((e) => setErr((e as Error).message));
-  }, [hist, running, who, apiKey]);
-  useEffect(() => {
-    if (!hist) return;
-    let live = true;
-    void friendLibrary(who, fixes).then((l) => live && setLib(l));
-    return () => {
-      live = false;
-    };
-  }, [hist, who, fixes]);
+function TheirEntity({ who, kind, artist, title }: { who: string; kind: EntityKind; artist: string; title: string }) {
+  const { lib, running, err } = useFriendHistory(who, true);
 
   // links to artist / album / song pages stay in their account
-  const stayInTheirs = (e: React.MouseEvent) => {
+  const stayInTheirs = (e: MouseEvent<HTMLDivElement>) => {
     const a = (e.target as Element | null)?.closest?.('a[href^="#/"]');
     if (!a) return;
     const r = parseRoute(a.getAttribute('href') ?? '');

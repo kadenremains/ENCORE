@@ -9,9 +9,10 @@ import { bumpSettings } from './changes';
 import type { StoredScrobble, UserInfo } from './types';
 
 /**
- * Friends for Compare. Their Last.fm profiles are public, so nothing is asked of them: their top
- * lists come straight from Last.fm, and their whole history can be downloaded (kept only on this
- * device, packed like yours). The list of friends you've compared with syncs; their data doesn't.
+ * Friends and anyone you look up. Last.fm profiles are public, so nothing is asked of them: their
+ * top lists come straight from Last.fm, and their whole history can be downloaded (kept only on
+ * this device, packed like yours, and deleted a day after you last look). Your friend list (names)
+ * syncs between your devices; their data never leaves this one.
  */
 
 export interface Friend {
@@ -25,7 +26,8 @@ export interface Friend {
 }
 
 const LS = 'sw.friends';
-const MAX = 30;
+/** friends shown (Last.fm friends can be many); removals remembered on top of that */
+const MAX = 200;
 
 function loadList(): Friend[] {
   try {
@@ -63,7 +65,7 @@ function saveList(all: Friend[], sync = true) {
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export const isFriend = (name: string) => useFriends.getState().list.some((f) => same(f.name, name));
 
-/** Add someone you compared with (only ever when you ask). */
+/** Add someone to your friends (only ever when you ask). */
 export function addFriend(f: { name: string; image?: string }) {
   if (isFriend(f.name)) return;
   const rest = useFriends.getState().all.filter((x) => !same(x.name, f.name));
@@ -85,14 +87,14 @@ export function refreshFriendImage(name: string, image?: string) {
   saveList(next, false);
 }
 
-/* ---------------- your Last.fm friends: people you follow who follow you back ---------------- */
+/* ---------------- your Last.fm friends ---------------- */
 
 const SYNCED = 'friendsSyncedAt2'; // (2: friends now come straight from Last.fm's list; check again right away)
 export const useFriendSync = create<{ running: boolean; at: number | null; error: string | null }>(() => ({ running: false, at: null, error: null }));
 
 /**
- * Who you follow on Last.fm, kept to those who follow you back. Last.fm friends are replaced by the
- * current mutuals; people you added yourself stay.
+ * Your friends on Last.fm (Last.fm's own friends list). They replace the Last.fm friends from last
+ * time; anyone no longer on it is removed. People you added yourself stay.
  */
 export async function syncLastfmFriends(me: string, apiKey: string): Promise<void> {
   if (useFriendSync.getState().running) return;
@@ -125,6 +127,14 @@ export async function maybeSyncLastfmFriends(me: string, apiKey: string) {
   if (!at || Date.now() - at > 24 * 3600_000) await syncLastfmFriends(me, apiKey);
 }
 
+/** A different account takes over this browser (or you disconnect): friends and their data go too. */
+export async function resetFriends() {
+  for (const c of cancels.values()) c.cancelled = true;
+  libs.clear();
+  saveList([], false);
+  await db.friendMonths.clear();
+}
+
 /** The list from another device (merged: the newer entry for each name wins). */
 export function applyRemoteFriends(raw: unknown) {
   const remote = sanitizeFriends(raw);
@@ -136,8 +146,11 @@ export function applyRemoteFriends(raw: unknown) {
   }
   const merged = [...byName.values()].sort((a, b) => Number(!!a.gone) - Number(!!b.gone) || (a.source === b.source ? 0 : a.source === 'lastfm' ? -1 : 1) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const key = (l: Friend[]) => JSON.stringify([...l].sort((a, b) => a.name.localeCompare(b.name)).map((f) => [f.name.toLowerCase(), f.at, !!f.gone]));
-  // this device knew something the other didn't: send the merged list back so both end up the same
-  saveList(merged, key(merged) !== key(remote));
+  saveList(merged, false);
+  // This device knew something the other didn't: send the merged list back so both end up the same.
+  // (Just after: the sync records the incoming settings' time once they're applied, which would
+  // otherwise cover this change up.)
+  if (key(merged) !== key(remote)) setTimeout(bumpSettings, 0);
 }
 
 /* ---------------- not keeping other people's data for long ---------------- */
@@ -192,7 +205,7 @@ const explain = (e: unknown, name: string): FriendError => {
   if (e instanceof FriendError) return e;
   const code = e instanceof LastfmError ? e.code : undefined;
   if (code === 6) return new FriendError(`There's no Last.fm user called “${name}”.`, 'not-found');
-  if (code === 17) return new FriendError(`${name} keeps their listening private on Last.fm, so it can't be compared.`, 'hidden');
+  if (code === 17) return new FriendError(`${name} keeps their listening private on Last.fm, so Encore can't show it.`, 'hidden');
   return new FriendError(`Couldn't reach Last.fm: ${(e as Error).message}`, 'network');
 };
 
@@ -322,7 +335,9 @@ export async function downloadHistory(name: string, apiKey: string): Promise<voi
     await setMeta(historyKey(name), { plays, through: newest, at: Date.now() } satisfies HistoryState);
     libs.delete(u);
   } catch (e) {
-    await dropFrom(u, (await historyState(name))?.through ?? 0).catch(() => {});
+    // back to the last complete download (everything after its newest play)
+    const done = await historyState(name);
+    await dropFrom(u, done ? done.through + 1 : 0).catch(() => {});
     throw explain(e, name);
   } finally {
     cancels.delete(u);

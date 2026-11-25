@@ -11,6 +11,7 @@ import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
 import { getPrefs } from './lib/prefs';
 import { decodeNames, findBatches, type Garbled } from './lib/tidy';
+import { resetFriends } from './lib/friends';
 import { applyFixes, findMismatches, fineKey, fixesFor, type Fix, type Mismatch } from './lib/mismatches';
 
 function loadJSON<T>(k: string, fallback: T): T {
@@ -237,6 +238,7 @@ async function claimLocalData(name: string, wasDemo: boolean) {
   if (wasDemo || (owner && owner.toLowerCase() !== name.toLowerCase())) {
     await scrobbleStore.clear();
     await db.meta.clear();
+    await resetFriends(); // the other account's friends aren't this one's
   }
 }
 
@@ -625,6 +627,7 @@ export const useApp = create<AppState>((set, get) => ({
     LS.set('sw.demo', '0');
     await scrobbleStore.clear();
     await db.meta.clear();
+    await resetFriends();
     set({ username: '', user: null, lib: null, mismatches: null, demo: false, view: 'onboard', sync: null });
   },
 

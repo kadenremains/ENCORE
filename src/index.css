@@ -4411,14 +4411,6 @@ kbd {
 }
 
 /* ---------------- Compare ---------------- */
-.friend-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  position: relative;
-}
 .friend-chip {
   display: inline-flex;
   align-items: center;
