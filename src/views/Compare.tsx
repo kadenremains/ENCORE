@@ -152,7 +152,7 @@ function Versus({ name }: { name: string }) {
       </section>
 
       <Panel title="Shared artists" right={<span className="muted small">{fmtNum(cmp.sharedArtists.length)} in common</span>}>
-        <SharedList items={cmp.sharedArtists} kind="artist" me={me.name} them={them.name} />
+        <SharedList items={cmp.sharedArtists} kind="artist" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} />
       </Panel>
 
       <Panel title="Who found it first">
@@ -171,10 +171,10 @@ function Versus({ name }: { name: string }) {
 
       <div className="grid2">
         <Panel title="Songs you both have on repeat">
-          <SharedList items={cmp.sharedTracks.slice(0, 12)} kind="track" me={me.name} them={them.name} compact />
+          <SharedList items={cmp.sharedTracks.slice(0, 12)} kind="track" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} compact />
         </Panel>
         <Panel title="Albums you both love">
-          <SharedList items={cmp.sharedAlbums.slice(0, 10)} kind="album" me={me.name} them={them.name} compact />
+          <SharedList items={cmp.sharedAlbums.slice(0, 10)} kind="album" me={me.name} them={them.name} meTotal={me.total} themTotal={them.total} compact />
         </Panel>
       </div>
 
@@ -288,11 +288,16 @@ function NeedsFull({ text, name, running, onGet }: { text: string; name: string;
   );
 }
 
-function SharedList({ items, kind, me, them, compact }: { items: Comparison['sharedArtists']; kind: 'artist' | 'album' | 'track'; me: string; them: string; compact?: boolean }) {
+function SharedList({ items, kind, them, meTotal, themTotal, compact }: { items: Comparison['sharedArtists']; kind: 'artist' | 'album' | 'track'; me: string; them: string; meTotal: number; themTotal: number; compact?: boolean }) {
   const [limit, setLimit] = useState(compact ? 12 : 15);
   const listImages = usePrefs((p) => p.listImages);
-  const maxMe = Math.max(1, ...items.map((x) => x.mine));
-  const maxThem = Math.max(1, ...items.map((x) => x.theirs));
+  // shares of each person's listening, on one scale: someone who scrobbles 6x as much doesn't swamp the bars
+  const share = (n: number, total: number) => n / Math.max(1, total);
+  const max = Math.max(1e-9, ...items.flatMap((x) => [share(x.mine, meTotal), share(x.theirs, themTotal)]));
+  const pctOf = (n: number, total: number) => {
+    const v = share(n, total) * 100;
+    return `${v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)}%`;
+  };
   if (!items.length) return <p className="empty">Nothing in common here.</p>;
   return (
     <>
@@ -305,13 +310,19 @@ function SharedList({ items, kind, me, them, compact }: { items: Comparison['sha
               <a href={entityPath(kind, x.name, x.artist || x.name)}>{x.name}</a>
               {x.artist && <span className="muted small">{x.artist}</span>}
               <span className="vs-bars">
-                <span className="vs-bar me" style={{ width: `${(x.mine / maxMe) * 100}%` }} title={`${me}: ${fmtNum(x.mine)}`} />
-                <span className="vs-bar them" style={{ width: `${(x.theirs / maxThem) * 100}%` }} title={`${them}: ${fmtNum(x.theirs)}`} />
+                <span className="vs-bar-row">
+                  <span className="vs-bar me" style={{ width: `${(share(x.mine, meTotal) / max) * 55}%` }} />
+                  <span className="vs-bar-label small">
+                    you {pctOf(x.mine, meTotal)} · {fmtNum(x.mine)}
+                  </span>
+                </span>
+                <span className="vs-bar-row">
+                  <span className="vs-bar them" style={{ width: `${(share(x.theirs, themTotal) / max) * 55}%` }} />
+                  <span className="vs-bar-label small muted">
+                    {them} {pctOf(x.theirs, themTotal)} · {fmtNum(x.theirs)}
+                  </span>
+                </span>
               </span>
-            </span>
-            <span className="vs-nums small">
-              <span>{fmtNum(x.mine)}</span>
-              <span className="muted">{fmtNum(x.theirs)}</span>
             </span>
           </li>
         ))}

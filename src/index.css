@@ -4729,3 +4729,26 @@ kbd {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* shared lists: each bar is that person's share of their own listening, labelled */
+.vs-shared li {
+  grid-template-columns: 22px auto minmax(0, 1fr);
+}
+.vs-bars {
+  gap: 5px;
+  margin-top: 6px;
+}
+.vs-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.vs-bar-row .vs-bar {
+  flex: 0 0 auto;
+}
+.vs-bar-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
