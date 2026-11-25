@@ -1,5 +1,5 @@
 import { fmtHourPref, usePrefs } from '../lib/prefs';
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { dayToDate } from '../lib/library';
 import type { EntityKind } from '../lib/types';
 import { EntityImg, fmtNum } from '../render/primitives';
@@ -150,56 +150,86 @@ export function BarChart({ data, height = 160, highlightMax = true, compare }: {
 
 /* ---------------- calendar heatmap ---------------- */
 
+/**
+ * One square per day, a column per week (Monday on top). Squares are drawn at a real size rather
+ * than stretched to the panel: they grow to fill the width up to a comfortable size, so a few weeks
+ * stay a small grid, and a long range scrolls sideways (starting at the newest end) instead of
+ * shrinking below what you can tap.
+ */
 export function CalendarHeatmap({ counts, startDay, endDay, onPick }: { counts: Map<number, number>; startDay: number; endDay: number; onPick?: (day: number) => void }) {
   const [hover, setHover] = useState<number | null>(null);
-  const start = dayToDate(startDay);
-  const lead = (start.getDay() + 6) % 7; // Monday-first
+  const [avail, setAvail] = useState(0);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setAvail(el.clientWidth));
+    ro.observe(el);
+    setAvail(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const lead = (dayToDate(startDay).getDay() + 6) % 7; // Monday-first
   const first = startDay - lead;
-  const weeks = Math.ceil((endDay - first + 1) / 7);
-  const vals = [...counts.entries()].filter(([d]) => d >= startDay && d <= endDay).map(([, v]) => v).sort((a, b) => a - b);
+  const weeks = Math.max(1, Math.ceil((endDay - first + 1) / 7));
+  const G = 3;
+  const LEFT = 30;
+  const TOP = 18;
+  const C = Math.max(10, Math.min(18, Math.floor((avail - LEFT + G) / weeks) - G));
+  const W = LEFT + weeks * (C + G) - G;
+  const H = TOP + 7 * (C + G) - G;
+
+  // a long range opens at its newest end (only when the range or size changes, not on every tap)
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [W, startDay, endDay]);
+
+  const vals = [...counts.entries()].filter(([d, v]) => d >= startDay && d <= endDay && v > 0).map(([, v]) => v).sort((a, b) => a - b);
   const q = (p: number) => vals[Math.min(vals.length - 1, Math.floor(vals.length * p))] ?? 1;
   const levels = [q(0.25), q(0.5), q(0.75), q(0.93)];
   const level = (v: number) => (v <= 0 ? 0 : v <= levels[0] ? 1 : v <= levels[1] ? 2 : v <= levels[2] ? 3 : v <= levels[3] ? 4 : 5);
-  const C = 12;
-  const G = 3;
-  const left = 26;
-  const top = 16;
+
+  // a month's name over its first full week. Where two would run into each other (a range that
+  // starts at the end of a month), the newer one wins; none hangs off the end.
   const months: { x: number; label: string }[] = [];
   for (let w = 0; w < weeks; w++) {
-    const d7 = dayToDate(first + w * 7 + 6);
-    if (w === 0 || d7.getMonth() !== dayToDate(first + (w - 1) * 7 + 6).getMonth()) months.push({ x: left + w * (C + G), label: d7.toLocaleDateString(undefined, { month: 'short' }) });
+    const d = dayToDate(first + w * 7 + 6);
+    if (w && d.getMonth() === dayToDate(first + w * 7 - 1).getMonth()) continue;
+    const x = LEFT + w * (C + G);
+    if (x + 26 > W) break;
+    if (months.length && x - months[months.length - 1].x < 30) months.pop();
+    months.push({ x, label: d.toLocaleDateString(undefined, { month: 'short' }) });
   }
-  const W = left + weeks * (C + G);
-  const H = top + 7 * (C + G);
+
   return (
     <div className="heatmap">
-      <div className="barchart-tip">{hover !== null ? `${fmtDay(hover)} · ${fmtNum(counts.get(hover) ?? 0)} plays` : ' '}</div>
-      <div className="heatmap-scroll" ref={(el) => void (el && (el.scrollLeft = el.scrollWidth))}>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: W * 1.6 }} onPointerLeave={() => setHover(null)}>
-          {months.map((m, i) => (
-            <text key={i} x={m.x} y={10} className="hm-label">
+      <div className="barchart-tip">{hover !== null ? `${fmtDay(hover)} · ${fmtNum(counts.get(hover) ?? 0)} plays` : '\u00a0'}</div>
+      <div className="heatmap-scroll" ref={scroller}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} onPointerLeave={() => setHover(null)}>
+          {months.map((m) => (
+            <text key={m.x} x={m.x} y={11} className="hm-label">
               {m.label}
             </text>
           ))}
           {[0, 2, 4].map((r) => (
-            <text key={r} x={0} y={top + r * (C + G) + C - 2} className="hm-label">
+            <text key={r} x={0} y={TOP + r * (C + G) + C / 2 + 3.5} className="hm-label">
               {WD[r]}
             </text>
           ))}
-          {Array.from({ length: weeks * 7 }, (_, k) => {
-            const day = first + k;
-            if (day < startDay || day > endDay) return null;
-            const w = Math.floor(k / 7);
-            const r = k % 7;
+          {Array.from({ length: endDay - startDay + 1 }, (_, i) => {
+            const day = startDay + i;
+            const k = day - first;
             const v = counts.get(day) ?? 0;
             return (
               <rect
-                key={k}
-                x={left + w * (C + G)}
-                y={top + r * (C + G)}
+                key={day}
+                x={LEFT + Math.floor(k / 7) * (C + G)}
+                y={TOP + (k % 7) * (C + G)}
                 width={C}
                 height={C}
-                rx={1.5}
+                rx={Math.max(1.5, C / 6)}
                 className={`hm l${level(v)} ${hover === day ? 'hover' : ''}`}
                 onPointerEnter={() => setHover(day)}
                 onClick={() => (onPick ? onPick(day) : setHover(day))}

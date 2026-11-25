@@ -110,7 +110,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
 
       <div className="stats-row">
         <Kpi value={rank ? `#${rank}` : '—'} label={`Rank in ${label}`} delta={rank ? <Move rank={rank} prev={prevRank} /> : null} sub={cmpLabel || undefined} />
-        <Kpi value={fmtPct(pct(er.plays, stats.total))} label="Of your plays" />
+        <Kpi value={fmtPct(pct(er.plays, stats.total))} label={scope ? "Of their plays" : "Of your plays"} />
         <Kpi value={fmtNum(er.days)} label="Days listened" sub={er.streak && er.streak.days > 1 ? `best streak ${er.streak.days} days` : undefined} />
         <Kpi value={er.busiestDay ? fmtNum(er.busiestDay.count) : '—'} label="Biggest day" sub={er.busiestDay ? fmtDay(er.busiestDay.day, { month: 'short', day: 'numeric', year: 'numeric' }) : undefined} />
       </div>

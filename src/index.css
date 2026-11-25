@@ -2596,14 +2596,12 @@ a.ledger-row:hover {
   overflow-x: auto;
 }
 .heatmap svg {
+  /* drawn at its real size (see CalendarHeatmap): never stretched */
   display: block;
-  width: 100%;
-  height: auto;
-  min-width: 620px;
 }
 .hm-label {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   fill: var(--muted);
 }
 .hm {
