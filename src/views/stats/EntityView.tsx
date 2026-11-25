@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useRangeStats } from './useRangeStats';
+import { useRangeStats, useScope } from './useRangeStats';
 import { KIND_LABEL, fmtPct, pct } from './helpers';
 import { AreaSpark, BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Move, Panel, WEEKDAYS, fmtDate, fmtDay, fmtHour, type LedgerItem } from '../../ui/charts';
 import { EntityImg, fmtNum } from '../../render/primitives';
@@ -16,9 +16,10 @@ import { albumKey } from '../../lib/library';
 
 export function EntityView({ kind, title, artist }: { kind: EntityKind; title: string; artist: string }) {
   const { lib, stats, prev, label, cmpLabel, range } = useRangeStats();
+  const scope = useScope();
   const [editImg, setEditImg] = useState(false);
   const idx = findEntity(lib, kind, title, artist);
-  if (idx < 0 && kind === 'album') return <HiddenSingleAlbum title={title} artist={artist} />;
+  if (idx < 0 && kind === 'album' && !scope) return <HiddenSingleAlbum title={title} artist={artist} />;
   if (idx < 0)
     return (
       <div className="page">
@@ -157,7 +158,7 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
         </>
       )}
 
-      <VsFriends kind={kind} name={name} artist={artistName} mine={at.plays} />
+      {!scope && <VsFriends kind={kind} name={name} artist={artistName} mine={at.plays} />}
 
       {er.plays > 0 && (
         <Panel title="Plays" right={<span className="muted small">{fmtNum(er.plays)} in {label}</span>}>
@@ -165,8 +166,9 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
         </Panel>
       )}
 
-      {kind === 'track' && lib.tracks[idx].single && <SingleNote singleKey={lib.tracks[idx].single!} />}
-      <MismatchNote kind={kind} name={name} artist={artistName} />
+      {/* your own settings and Clean up: not on someone else's pages */}
+      {!scope && kind === 'track' && lib.tracks[idx].single && <SingleNote singleKey={lib.tracks[idx].single!} />}
+      {!scope && <MismatchNote kind={kind} name={name} artist={artistName} />}
 
       {editImg && <ImageEditor entity={{ kind, name, artist: artistName }} onClose={() => setEditImg(false)} />}
     </div>

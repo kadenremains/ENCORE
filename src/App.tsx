@@ -27,6 +27,7 @@ const Settings = lazy(() => import('./views/Settings').then((m) => ({ default: m
 const Compare = lazy(() => import('./views/Compare').then((m) => ({ default: m.Compare })));
 const FriendsPage = lazy(() => import('./views/Friends').then((m) => ({ default: m.Friends })));
 const FriendProfile = lazy(() => import('./views/Friends').then((m) => ({ default: m.FriendProfile })));
+const FriendEntity = lazy(() => import('./views/Friends').then((m) => ({ default: m.FriendEntity })));
 const loading = (
   <div className="center-screen">
     <span className="spinner big" />
@@ -154,6 +155,13 @@ function Main() {
       page = (
         <Suspense fallback={loading}>
           <FriendProfile key={route.who} name={route.who} />
+        </Suspense>
+      );
+      break;
+    case 'friendEntity':
+      page = (
+        <Suspense fallback={loading}>
+          <FriendEntity key={`${route.who}|${route.kind}|${route.artist}|${route.title}`} who={route.who} kind={route.kind} artist={route.artist} title={route.title} />
         </Suspense>
       );
       break;

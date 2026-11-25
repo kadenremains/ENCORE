@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store';
-import { navigate, routePath, entityPath } from '../router';
-import { useRangeStats } from './stats/useRangeStats';
+import { navigate, parseRoute, routePath } from '../router';
+import { LibScope, useRangeStats } from './stats/useRangeStats';
+import { EntityView } from './stats/EntityView';
 import { BarChart, CalendarHeatmap, Kpi, Ledger, Panel, Punchcard, fmtDay, type LedgerItem } from '../ui/charts';
 import { fmtNum } from '../render/primitives';
 import { fmtHourPref } from '../lib/prefs';
-import { findEntity, getStats, type Library, type RangeStats } from '../lib/library';
+import { getStats, type Library, type RangeStats } from '../lib/library';
 import { PERIOD_LABEL, nearestPeriod } from '../lib/compare';
 import {
   addFriend,
@@ -218,7 +219,9 @@ export function FriendProfile({ name }: { name: string }) {
     );
   }
   const shownName = info?.name ?? name;
-  const myLink = (kind: EntityKind, n: string, a: string) => (findEntity(myLib, kind, n, a) >= 0 ? entityPath(kind, n, a) : undefined);
+  // their artists, albums and songs open their own pages (their history, like it was their account)
+  const myLink = (kind: EntityKind, n: string, a: string) => routePath({ name: 'friendEntity', who: shownName, kind, artist: a, title: n });
+  void myLib;
 
   return (
     <div className="page friend-profile">
@@ -453,6 +456,84 @@ function QuickStats({ q, note, myLink }: { q: QuickLists; note: string; myLink: 
         <Kpi value={fmtNum(q.tracks.length)} label="Songs" sub={q.tracks.length >= 1000 ? 'top 1,000' : undefined} />
       </div>
       <TopPanels items={(n) => ({ artist: itemsFromTop(q.artists, 'artist', n, myLink), album: itemsFromTop(q.albums, 'album', n, myLink), track: itemsFromTop(q.tracks, 'track', n, myLink) })} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ #/friend/<who>/artist|album|song/…: their pages */
+
+/**
+ * One of their artists, albums or songs, shown with the same page as yours but from their history
+ * (as if it were their account). Links on the page stay in their account; your own settings, Clean
+ * up notes and friends' plays are left off.
+ */
+export function FriendEntity({ who, kind, artist, title }: { who: string; kind: EntityKind; artist: string; title: string }) {
+  const apiKey = useApp((s) => s.apiKey);
+  const fixes = useApp((s) => s.albumPrefs.fixes);
+  const running = useDownloads((s) => s.running[who.toLowerCase()]);
+  const [hist, setHist] = useState<HistoryState | null | undefined>(undefined);
+  const [lib, setLib] = useState<Library | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    void markViewed(who);
+  }, [who]);
+  // their history is needed for these pages: loaded by itself the first time
+  useEffect(() => {
+    if (running) return;
+    let live = true;
+    void historyState(who).then((h) => live && setHist(h ?? null));
+    return () => {
+      live = false;
+    };
+  }, [running, who]);
+  useEffect(() => {
+    if (hist !== null || running || started.current) return;
+    started.current = true;
+    downloadHistory(who, apiKey).catch((e) => setErr((e as Error).message));
+  }, [hist, running, who, apiKey]);
+  useEffect(() => {
+    if (!hist) return;
+    let live = true;
+    void friendLibrary(who, fixes).then((l) => live && setLib(l));
+    return () => {
+      live = false;
+    };
+  }, [hist, who, fixes]);
+
+  // links to artist / album / song pages stay in their account
+  const stayInTheirs = (e: React.MouseEvent) => {
+    const a = (e.target as Element | null)?.closest?.('a[href^="#/"]');
+    if (!a) return;
+    const r = parseRoute(a.getAttribute('href') ?? '');
+    if (r.name !== 'entity') return;
+    e.preventDefault();
+    navigate({ name: 'friendEntity', who, kind: r.kind, artist: r.artist, title: r.title });
+  };
+
+  return (
+    <>
+      <div className="friend-scope">
+        <a href={routePath({ name: 'friend', who })}>
+          ← <b>{who}</b>’s stats
+        </a>
+        <span className="muted small">their history, not yours</span>
+      </div>
+      {err ? (
+        <p className="empty">{err}</p>
+      ) : !lib ? (
+        <div className="center-screen">
+          <span className="spinner big" />
+          <p className="muted small">{running?.total ? `Loading ${who}’s history… ${fmtNum(running.done)} of ${fmtNum(running.total)}` : `Loading ${who}’s history…`}</p>
+        </div>
+      ) : (
+        <LibScope.Provider value={{ lib, who }}>
+          <div onClickCapture={stayInTheirs}>
+            <EntityView kind={kind} title={title} artist={artist} />
+          </div>
+        </LibScope.Provider>
+      )}
     </>
   );
 }

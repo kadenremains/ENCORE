@@ -4784,3 +4784,19 @@ kbd {
     display: none;
   }
 }
+.friend-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--panel);
+}
+.friend-scope a {
+  color: var(--text);
+  text-decoration: none;
+}

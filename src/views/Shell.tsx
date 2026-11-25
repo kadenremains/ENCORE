@@ -25,7 +25,7 @@ const TABS: { label: string; short: string; route: Route; match: (r: Route) => b
   { label: 'Songs', short: 'Songs', route: { name: 'top', kind: 'track' }, match: (r) => (r.name === 'top' || r.name === 'entity') && r.kind === 'track', icon: '♪' },
   { label: 'History', short: 'History', route: { name: 'history', view: 'scrobbles' }, match: (r) => r.name === 'history', icon: '▤' },
   { label: 'Records', short: 'Records', route: { name: 'records' }, match: (r) => r.name === 'records', icon: '★' },
-  { label: 'Friends', short: 'Friends', route: { name: 'friends' }, match: (r) => r.name === 'friends' || r.name === 'friend' || r.name === 'compare', icon: '⇄' },
+  { label: 'Friends', short: 'Friends', route: { name: 'friends' }, match: (r) => r.name === 'friends' || r.name === 'friend' || r.name === 'friendEntity' || r.name === 'compare', icon: '⇄' },
   { label: 'Create', short: 'Create', route: { name: 'create' }, match: (r) => r.name === 'create', icon: '✦' },
 ];
 
@@ -66,7 +66,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           </a>
           <div className="row gap">
             {!demo && (
-              <a className={`head-friends ${route.name === 'friends' || route.name === 'friend' || route.name === 'compare' ? 'on' : ''}`} href="#/friends" title="Friends" aria-label="Friends">
+              <a className={`head-friends ${route.name === 'friends' || route.name === 'friend' || route.name === 'friendEntity' || route.name === 'compare' ? 'on' : ''}`} href="#/friends" title="Friends" aria-label="Friends">
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                   <circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
                   <path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

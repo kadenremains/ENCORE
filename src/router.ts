@@ -14,6 +14,7 @@ export type Route =
   | { name: 'compare'; friend?: string }
   | { name: 'friends' }
   | { name: 'friend'; who: string }
+  | { name: 'friendEntity'; who: string; kind: EntityKind; artist: string; title: string }
   | { name: 'create' }
   | { name: 'edit'; id: string }
   | { name: 'settings'; tab: SettingsTab; q?: string };
@@ -32,7 +33,7 @@ const dec = (s: string) => {
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  const [a, b, c] = parts;
+  const [a, b, c, d, e] = parts;
   switch (a) {
     case 'artists':
       return { name: 'top', kind: 'artist' };
@@ -58,6 +59,9 @@ export function parseRoute(hash: string): Route {
     case 'friends':
       return { name: 'friends' };
     case 'friend':
+      // someone's own artist / album / song pages: #/friend/<who>/artist/<a>, …/album|song/<a>/<t>
+      if (b && c === 'artist' && d) return { name: 'friendEntity', who: dec(b), kind: 'artist', artist: dec(d), title: dec(d) };
+      if (b && (c === 'album' || c === 'song') && d && e) return { name: 'friendEntity', who: dec(b), kind: c === 'album' ? 'album' : 'track', artist: dec(d), title: dec(e) };
       if (b) return { name: 'friend', who: dec(b) };
       return { name: 'friends' };
     case 'create':
@@ -91,6 +95,8 @@ export function routePath(r: Route): string {
       return '#/friends';
     case 'friend':
       return `#/friend/${enc(r.who)}`;
+    case 'friendEntity':
+      return `#/friend/${enc(r.who)}${routePath({ name: 'entity', kind: r.kind, artist: r.artist, title: r.title }).slice(1)}`;
     case 'create':
       return '#/create';
     case 'edit':
