@@ -21,7 +21,8 @@ export const CHANGELOG: Release[] = [
       { text: 'Nothing about them is kept for long: what Encore downloads stays on your device and is deleted a day after you last open the comparison.' },
       { text: 'Make a “You vs. them” wrapped straight from a comparison. Only their name is saved with it; opening it loads the comparison fresh (text you rewrite yourself stays).' },
       { text: 'Your friends: people you follow on Last.fm who follow you back appear by themselves (checked daily), and you can add anyone else you compare with. Comparing never adds anyone on its own.' },
-      { text: 'Start from the Overview (“Compare with a friend”, then one tap for a friend) or the Compare tab on a computer. Artist, album and song pages show your friends’ plays next to yours.' },
+      { text: 'Friends: tap a friend (or look anyone up) to see all their stats for your range: their top artists, albums and songs, listening over time, habits and records. Compare sits next to every name.' },
+      { text: 'Find it from the Friends button on the Overview, or the Friends tab on a computer. Artist, album and song pages show your friends’ plays next to yours.' },
     ],
   },
   {
