@@ -263,7 +263,7 @@ export function compare(me: Side, them: Side): Comparison {
   let firsts: FirstFind[] | null = null;
   if (me.firstPlay && them.firstPlay) {
     firsts = [];
-    for (const s of sharedArtists.slice(0, 40)) {
+    for (const s of sharedArtists) {
       const a = me.firstPlay.get(s.key);
       const b = them.firstPlay.get(s.key);
       if (a === undefined || b === undefined) continue;

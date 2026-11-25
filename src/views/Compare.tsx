@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 import { navigate, routePath, entityPath } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
@@ -348,32 +348,51 @@ function OnlyList({ items, who, empty, link }: { items: { name: string; plays: n
 }
 
 function Firsts({ firsts, them }: { firsts: NonNullable<Comparison['firsts']>; them: string }) {
-  const mine = firsts.filter((f) => f.first === 'me').length;
-  const theirs = firsts.filter((f) => f.first === 'them').length;
   const date = (t: number) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const gap = (d: number) => (d >= 60 ? `${Math.round(d / 30)} months` : `${d} day${d === 1 ? '' : 's'}`);
-  const shown = useMemo(() => firsts.slice(0, 12), [firsts]);
+  const mine = firsts.filter((f) => f.first === 'me' && !f.beforeOther);
+  const theirs = firsts.filter((f) => f.first === 'them' && !f.beforeOther);
+  const before = firsts.filter((f) => f.beforeOther);
+  const same = firsts.filter((f) => f.first === 'same');
   if (!firsts.length) return <p className="empty">No shared artists to compare.</p>;
   return (
     <>
       <p className="small">
-        Of your top {firsts.length} shared artists, <b>you</b> found {mine} first and <b>{them}</b> found {theirs} first.
+        Of your {firsts.length} shared artists, <b>you</b> found {mine.length} first and <b>{them}</b> found {theirs.length} first{same.length ? `, ${same.length} the same day` : ''}.
+        {before.length ? ` ${before.length} were first played before the other one started scrobbling, so they don’t count either way.` : ''}
       </p>
+      <FirstGroup title="You found first" items={mine} who={(f) => `You, ${gap(f.days)} earlier`} date={date} them={them} />
+      <FirstGroup title={`${them} found first`} items={theirs} who={(f) => `${them}, ${gap(f.days)} earlier`} date={date} them={them} />
+      <FirstGroup title="Before the other started scrobbling" items={before} who={(f) => `${f.first === 'me' ? 'You' : them} had it before ${f.first === 'me' ? them : 'you'} joined`} date={date} them={them} />
+    </>
+  );
+}
+
+function FirstGroup({ title, items, who, date, them }: { title: string; items: NonNullable<Comparison['firsts']>; who: (f: NonNullable<Comparison['firsts']>[number]) => string; date: (t: number) => string; them: string }) {
+  const [limit, setLimit] = useState(5);
+  if (!items.length) return null;
+  return (
+    <div className="first-group">
+      <h4>
+        {title} <span className="muted small">· {items.length}</span>
+      </h4>
       <ol className="vs-firsts">
-        {shown.map((f) => (
+        {items.slice(0, limit).map((f) => (
           <li key={f.name}>
             <a href={entityPath('artist', f.name, f.name)}>{f.name}</a>
-            <span className="small">
-              {f.first === 'same' ? 'Same day' : `${f.first === 'me' ? 'You' : them}, ${gap(f.days)} earlier`}
-              {f.beforeOther && <span className="muted"> (before {f.first === 'me' ? them : 'you'} started scrobbling)</span>}
-            </span>
+            <span className="small">{who(f)}</span>
             <span className="muted small">
               you {date(f.mine)} · {them} {date(f.theirs)}
             </span>
           </li>
         ))}
       </ol>
-    </>
+      {items.length > limit && (
+        <button className="more" onClick={() => setLimit(limit + 50)}>
+          Show all {items.length}
+        </button>
+      )}
+    </div>
   );
 }
 
