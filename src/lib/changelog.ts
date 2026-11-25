@@ -12,6 +12,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.9.1',
+    date: '2026-11-25',
+    title: 'Pictures stored once',
+    notes: [
+      { text: 'Every picture in your wrappeds and custom pictures is stored once on your device, as plain image data, however many wrappeds use it, so they take much less space. They look exactly the same; nothing is compressed.' },
+      { text: 'Settings → Data & storage shows where the space goes: pictures, scrobbles, wrappeds and the rest.' },
+    ],
+  },
+  {
     version: '2.9',
     date: '2026-11-25',
     title: 'Packed history',
