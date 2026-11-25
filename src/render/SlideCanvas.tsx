@@ -3,7 +3,7 @@ import type { Library } from '../lib/library';
 import type { Project, Slide, Theme } from '../editor/model';
 import { BlockView, type RenderCtx } from './blocks';
 import { GRAIN_URL } from './primitives';
-import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useEntityImage, useImagesVersion } from '../lib/images';
+import { ACCOUNT_BG_KEY, bigAvatar, getOverride, reportBroken, useEntityImage, useImagesVersion, useWorkingPicture } from '../lib/images';
 import { useApp } from '../store';
 import { getStats } from '../lib/library';
 import { resolveRange } from '../lib/range';
@@ -100,10 +100,9 @@ export function useBackgroundSrc(lib: Library, project: Project, theme: Theme): 
   const kind = src === 'artist' ? 'artist' : 'album';
   const top = src === 'artist' || src === 'album' ? getStats(lib, resolveRange(project.range)).top(kind, 1)[0] : undefined;
   const auto = useEntityImage(kind, top?.name ?? '', top?.artist ?? '');
-  if (src === 'artist' || src === 'album') return top ? auto?.src : undefined;
-  if (src === 'mine') return getOverride(ACCOUNT_BG_KEY)?.src;
-  if (src === 'avatar') return bigAvatar(avatar);
-  return theme.bgImage;
+  const chosen = src === 'artist' || src === 'album' ? (top ? auto?.src : undefined) : src === 'mine' ? getOverride(ACCOUNT_BG_KEY)?.src : src === 'avatar' ? bigAvatar(avatar) : theme.bgImage;
+  // one that doesn't load is left out, so the theme's colours show instead of a broken picture
+  return useWorkingPicture(chosen);
 }
 
 /** CSS for placing the background picture: focus point + zoom. */
@@ -124,6 +123,7 @@ function BackgroundPicture({ lib, project, theme }: { lib: Library; project: Pro
         src={src}
         alt=""
         crossOrigin={src.startsWith('data:') ? undefined : 'anonymous'}
+        onError={() => reportBroken(src)}
         style={{
           position: 'absolute',
           inset: blur ? -blur * 2 : 0,

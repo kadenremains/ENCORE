@@ -24,6 +24,44 @@ export function subscribeImages(l: () => void) {
   return () => listeners.delete(l);
 }
 
+/* ---------------- pictures that didn't load ---------------- */
+
+/**
+ * Links that failed to load (dead links, blocked sites, a broken saved picture), and when. A broken
+ * one is skipped and the next picture in line is shown instead (custom → Last.fm → looked up → none);
+ * it's tried again after a while, or as soon as the device is back online.
+ */
+const broken = new Map<string, number>();
+const RETRY_BROKEN_AFTER = 10 * 60_000;
+const isBroken = (src: string) => {
+  const at = broken.get(src);
+  return at !== undefined && Date.now() - at < RETRY_BROKEN_AFTER;
+};
+
+/** For an <img>'s onError: this picture didn't load, so show the next one in line (or the fallback). */
+export function reportBroken(src: string) {
+  if (!src || isBroken(src)) return;
+  broken.set(src, Date.now());
+  // a looked-up link that's gone dead: search again (the stored copy is replaced by the new result).
+  // Not while offline, when every picture fails and the links themselves are fine.
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) for (const [key, url] of resolved) if (url === src) resolved.delete(key);
+  emit();
+}
+
+/** `src`, or undefined if it failed to load (so the caller shows its fallback). Pair with onError={() => reportBroken(src)}. */
+export function useWorkingPicture(src: string | undefined): string | undefined {
+  useSyncExternalStore(subscribeImages, () => version);
+  return src && !isBroken(src) ? src : undefined;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (!broken.size) return;
+    broken.clear();
+    emit();
+  });
+}
+
 export async function loadImageState() {
   const [ov, cache] = await Promise.all([overridesDb.all(), db.imgcache.toArray()]);
   ov.forEach((o) => overrides.set(o.key, o));
@@ -233,7 +271,7 @@ export function lookupImage(kind: EntityKind, name: string, artist: string): Pro
 async function lookupAlbumDirect(album: string, artist: string): Promise<{ url: string; failed: boolean }> {
   const k = entityKey('album', album, artist);
   const hint = hintFn('album', album, artist);
-  if (hint) return { url: hint, failed: false };
+  if (hint && !isBroken(hint)) return { url: hint, failed: false };
   const custom = overrides.get(k);
   if (custom) return { url: custom.src, failed: false };
   if (resolved.has(k)) return { url: resolved.get(k)!, failed: false };
@@ -252,29 +290,26 @@ export interface ResolvedImage {
   custom: boolean;
 }
 
-/** The image we'll show for an entity right now, without triggering lookups. */
+/**
+ * The image we'll show for an entity right now, without triggering lookups: the first in line that
+ * hasn't failed to load.
+ */
 export function currentImage(kind: EntityKind, name: string, artist: string): ResolvedImage | null {
   const key = entityKey(kind, name, artist);
+  const pick = (src: string | undefined, zoom = 1, x = 50, y = 50, custom = false): ResolvedImage | null => (src && !isBroken(src) ? { src, zoom, x, y, custom } : null);
   const o = overrides.get(key);
-  if (o) return { src: o.src, zoom: o.zoom, x: o.x, y: o.y, custom: true };
   // a custom album image also covers that album's songs
-  if (kind === 'track') {
-    const album = albumOf(name, artist);
-    const ao = album ? overrides.get(entityKey('album', album.name, album.artist)) : undefined;
-    if (ao) return { src: ao.src, zoom: ao.zoom, x: ao.x, y: ao.y, custom: false };
-  }
-  // Last.fm art for albums is the most accurate; for tracks it's the album art.
-  if (kind !== 'artist') {
-    const hint = hintFn(kind, name, artist);
-    if (hint) return { src: hint, zoom: 1, x: 50, y: 50, custom: false };
-  }
-  const r = resolved.get(key);
-  if (r) return { src: r, zoom: 1, x: 50, y: 50, custom: false };
-  if (kind === 'artist' && resolved.get(key) === '') {
-    const hint = hintFn(kind, name, artist); // fall back to their top album art
-    if (hint) return { src: hint, zoom: 1, x: 50, y: 50, custom: false };
-  }
-  return null;
+  const album = kind === 'track' ? albumOf(name, artist) : undefined;
+  const ao = album ? overrides.get(entityKey('album', album.name, album.artist)) : undefined;
+  return (
+    (o ? pick(o.src, o.zoom, o.x, o.y, true) : null) ??
+    (ao ? pick(ao.src, ao.zoom, ao.x, ao.y) : null) ??
+    // Last.fm art for albums is the most accurate; for tracks it's the album art
+    (kind !== 'artist' ? pick(hintFn(kind, name, artist)) : null) ??
+    pick(resolved.get(key)) ??
+    // an artist whose search found nothing that works: their top album's art
+    (kind === 'artist' && resolved.has(key) ? pick(hintFn(kind, name, artist)) : null)
+  );
 }
 
 /** currentImage() as a plain string, so a picture only re-renders when its own image changes. */

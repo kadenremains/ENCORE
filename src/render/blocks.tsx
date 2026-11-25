@@ -19,6 +19,7 @@ import {
   type TopListBlock,
 } from '../editor/model';
 import { EntityImg, Movement, fmtNum, shapeRadius } from './primitives';
+import { reportBroken, useWorkingPicture } from '../lib/images';
 import type { ImageShape } from '../editor/model';
 
 export interface RenderCtx {
@@ -743,17 +744,21 @@ function ImageView({ ctx, b }: { ctx: RenderCtx; b: ImageBlock }) {
   const radius = shapeRadius(shapeFor(p, b.shape), Math.min(w, h));
   const item = imageBlockEntity(ctx, b);
   const font = b.captionSize;
+  const upload = useWorkingPicture(b.source === 'upload' ? b.src : undefined);
   let img: ReactNode;
   if (b.source === 'upload') {
-    img = b.src ? (
+    img = upload ? (
       <img
-        src={b.src}
+        src={upload}
         alt=""
         draggable={false}
+        onError={() => reportBroken(upload)}
         style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${b.fx}% ${b.fy}%`, transform: b.zoom !== 1 ? `scale(${b.zoom})` : undefined, transformOrigin: `${b.fx}% ${b.fy}%`, filter, display: 'block' }}
       />
     ) : (
-      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: withAlpha(p.text, 0.08), color: p.muted, fontSize: 32 }}>Upload an image →</div>
+      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24, background: withAlpha(p.text, 0.08), color: p.muted, fontSize: 32 }}>
+        {b.src ? 'This picture didn’t load. Upload it again →' : 'Upload an image →'}
+      </div>
     );
   } else if (item) {
     img = <EntityImg kind={item.kind} name={item.name} artist={item.artist} filter={filter} extraZoom={b.zoom} focal={{ x: b.fx, y: b.fy }} />;

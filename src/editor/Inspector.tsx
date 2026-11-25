@@ -23,6 +23,7 @@ import {
 import { ColorInput, Field, NumberInput, RangePicker, Section, Segmented, Select, Slider, TextInput, Toggle, UploadButton } from '../ui/controls';
 import { blockRange, imageBlockEntity, TOKENS, defaultStatLabel, type RenderCtx } from '../render/blocks';
 import { slideTheme, backgroundCss, bgPlacement, useBackgroundSrc } from '../render/SlideCanvas';
+import { reportBroken } from '../lib/images';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
 import { MyPictureControls } from '../ui/MyPicture';
 import { EntityImg } from '../render/primitives';
@@ -978,7 +979,7 @@ function BgFramer({ project, theme, onChange }: { project: Project; theme: Theme
         onPointerUp={() => (drag.current = null)}
         onPointerCancel={() => (drag.current = null)}
       >
-        <img src={src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: Math.max(0.35, theme.bgImageOpacity), ...bgPlacement(theme) }} />
+        <img src={src} alt="" draggable={false} onError={() => reportBroken(src)} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: Math.max(0.35, theme.bgImageOpacity), ...bgPlacement(theme) }} />
       </div>
       <Field label="Zoom">
         <Slider value={zoom} min={1} max={4} step={0.01} onChange={(v) => onChange({ bgImageZoom: v }, 'bgzoom')} />

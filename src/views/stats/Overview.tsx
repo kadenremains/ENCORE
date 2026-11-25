@@ -1,6 +1,6 @@
 import { useRangeStats } from './useRangeStats';
 import { usePrefs } from '../../lib/prefs';
-import { ACCOUNT_BG_KEY, bigAvatar, getOverride, useImagesVersion } from '../../lib/images';
+import { ACCOUNT_BG_KEY, bigAvatar, getOverride, reportBroken, useImagesVersion, useWorkingPicture } from '../../lib/images';
 import { useApp } from '../../store';
 import { ledgerItems, KIND_LABEL, fmtPct, pct } from './helpers';
 import { BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Panel, WEEKDAYS, fmtDay, fmtHour } from '../../ui/charts';
@@ -185,13 +185,13 @@ function HeroBackground() {
   const topAlbum = stats.top('album', 1)[0];
   const topArtist = stats.top('artist', 1)[0];
   // fall back to the #1 album when the chosen picture doesn't exist (no profile picture, no "My picture")
-  const src = choice === 'avatar' ? bigAvatar(avatar) : choice === 'mine' ? mine : undefined;
+  const src = useWorkingPicture(choice === 'avatar' ? bigAvatar(avatar) : choice === 'mine' ? mine : undefined);
   const kind = choice === 'artist' ? 'artist' : 'album';
   const entity = kind === 'artist' ? topArtist : topAlbum;
   if (choice === 'none') return null;
   return (
     <div className={`hero-art strength-${strength}`} aria-hidden>
-      {src ? <img src={src} alt="" /> : entity ? <EntityImg kind={kind} name={entity.name} artist={entity.artist} /> : null}
+      {src ? <img src={src} alt="" onError={() => reportBroken(src)} /> : entity ? <EntityImg kind={kind} name={entity.name} artist={entity.artist} /> : null}
     </div>
   );
 }

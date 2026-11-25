@@ -8,6 +8,7 @@ import { useRangeStats } from './stats/useRangeStats';
 import { dayToDate } from '../lib/library';
 import type { CompareMode } from '../lib/range';
 import { cancelSignIn, isHomeScreenApp, pollPending, syncNow, useCloud } from '../lib/cloud';
+import { UserAvatar } from '../ui/UserAvatar';
 
 function ago(t: number | null) {
   if (!t) return 'never';
@@ -79,7 +80,7 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
             <SyncPill />
             <div className="user-menu" ref={menuRef}>
               <button className="user-btn" onClick={() => setMenu(!menu)}>
-                {user?.image ? <img src={user.image} alt="" /> : <span className="avatar">{(user?.name ?? username ?? '?')[0]?.toUpperCase()}</span>}
+                <UserAvatar src={user?.image} name={user?.name ?? username ?? '?'} />
                 {dot && <span className={`cloud-dot ${dot}`} title={cloud.status === 'error' ? (cloud.error ?? 'Sync error') : 'Synced'} />}
                 <span className="user-name">{demo ? 'Demo data' : (user?.name ?? username)}</span>
               </button>

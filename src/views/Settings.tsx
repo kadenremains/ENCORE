@@ -24,6 +24,7 @@ import { ImagesManager } from './ImagesManager';
 import { MyPictureControls } from '../ui/MyPicture';
 import { SignInWaiting } from '../ui/SignInWaiting';
 import { measureStorage, type StorageUse } from '../lib/storageUsage';
+import { UserAvatar } from '../ui/UserAvatar';
 
 const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'account', label: 'Account & sync', icon: '◉', desc: 'Last.fm, devices, API key' },
@@ -285,7 +286,7 @@ function AccountTab() {
     <>
       <Group title="Last.fm account">
         <div className="profile-card">
-          {user?.image ? <img src={bigAvatar(user.image)} alt="" /> : <span className="avatar big">{(user?.name ?? username ?? '?')[0]?.toUpperCase()}</span>}
+          <UserAvatar src={user?.image ? bigAvatar(user.image) : undefined} name={user?.name ?? username ?? '?'} big />
           <div>
             <div className="profile-name">{user?.name ?? username}</div>
             {user?.realname && <div className="muted small">{user.realname}</div>}

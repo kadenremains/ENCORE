@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useEntityImage } from '../lib/images';
+import { reportBroken, useEntityImage } from '../lib/images';
 import type { EntityKind } from '../lib/types';
 import type { ImageShape } from '../editor/model';
 
@@ -73,6 +73,8 @@ export function EntityImg({ kind, name, artist, size, shape = 'square', style, f
         crossOrigin={img.src.startsWith('data:') ? undefined : 'anonymous'}
         alt=""
         draggable={false}
+        // a dead link: the next picture in line takes its place (or the placeholder)
+        onError={() => reportBroken(img.src)}
         style={{
           width: '100%',
           height: '100%',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { entityKey } from '../lib/db';
-import { currentImage, fileToDataUrl, getOverride, removeOverride, setOverride, urlToDataUrl, useImagesVersion } from '../lib/images';
+import { currentImage, fileToDataUrl, getOverride, removeOverride, reportBroken, setOverride, urlToDataUrl, useImagesVersion, useWorkingPicture } from '../lib/images';
 import type { EntityKind } from '../lib/types';
 import { Field, Slider } from './controls';
 
@@ -28,6 +28,8 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
   const previewRef = useRef<HTMLDivElement>(null);
   const shown = src || (auto && !auto.custom ? auto.src : '');
   const editingAuto = !src && !!shown;
+  // a picture (a pasted link, most often) that doesn't load can't be saved
+  const loads = !!useWorkingPicture(shown);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -95,8 +97,14 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
             }}
             onPointerUp={() => (dragRef.current = null)}
           >
-            {shown ? (
-              <img src={shown} alt="" draggable={false} style={{ objectPosition: `${x}% ${y}%`, transform: `scale(${zoom})`, transformOrigin: `${x}% ${y}%` }} />
+            {shown && loads ? (
+              <img src={shown} alt="" draggable={false} onError={() => reportBroken(shown)} style={{ objectPosition: `${x}% ${y}%`, transform: `scale(${zoom})`, transformOrigin: `${x}% ${y}%` }} />
+            ) : shown ? (
+              <div className="crop-empty">
+                That picture didn’t load
+                <br />
+                <span className="muted">try another link, or save it and upload it</span>
+              </div>
             ) : (
               <div className="crop-empty">
                 Drop an image here
@@ -186,7 +194,7 @@ export function ImageEditor({ entity, onClose }: { entity: EntityRef; onClose: (
                   Reset to automatic
                 </button>
               )}
-              <button className="btn primary" onClick={save} disabled={!shown}>
+              <button className="btn primary" onClick={save} disabled={!shown || !loads}>
                 Save image
               </button>
             </div>

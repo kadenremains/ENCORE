@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 import { routePath } from '../router';
 import { Placeholder, fmtNum } from '../render/primitives';
+import { reportBroken, useWorkingPicture } from '../lib/images';
 import { cachedAllArtists, friendLibrary, historyState, useFriends, type Friend } from '../lib/friends';
 import { artistKey } from '../lib/compare';
 import { findEntity } from '../lib/library';
 import type { EntityKind } from '../lib/types';
 
 export function FriendAvatar({ f, size = 30 }: { f: { name: string; image?: string }; size?: number }) {
-  return f.image ? (
-    <img className="friend-avatar" src={f.image} alt="" width={size} height={size} referrerPolicy="no-referrer" />
+  const src = useWorkingPicture(f.image);
+  return src ? (
+    <img className="friend-avatar" src={src} alt="" width={size} height={size} referrerPolicy="no-referrer" onError={() => reportBroken(src)} />
   ) : (
     <Placeholder label={f.name} style={{ width: size, height: size, borderRadius: '50%', fontSize: size * 0.4 }} />
   );
