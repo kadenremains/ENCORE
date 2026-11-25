@@ -10,12 +10,6 @@ import { md5 } from './md5';
  *  - GET  /me                who am I
  *  - GET/POST /vault         the account's data key, for its own signed-in devices
  *  - POST /sync              push local changes, pull remote changes (wrappeds, images, settings)
-
- * Privacy: synced wrappeds, pictures and settings are encrypted in the browser before upload
- * ("e1:" values, picture names hashed to "h:" keys). Each account's key is stored locked with
- * VAULT_KEY, a Worker secret kept outside the database. So the database on its own holds
- * usernames and unreadable data; only this server, for that account's own signed-in devices,
- * unlocks the key.
  *  - POST /account/delete   delete everything stored for the signed-in account
  *  - POST /logout
  *  - GET  /art?type=&q=      artwork search (Deezer), so the app never runs third-party code
@@ -24,6 +18,12 @@ import { md5 } from './md5';
  *  - POST /auth/confirm      the approving browser releases a pickup that came from another connection
  *  - GET  /admin/stats       owner-only usage numbers
  *  - GET  /admin/notes       owner-only behind-the-scenes version notes (kept in the database, not in this repo)
+ *
+ * Privacy: synced wrappeds, pictures and settings are encrypted in the browser before upload
+ * ("e1:" values, picture names hashed to "h:" keys). Each account's key is stored locked with
+ * VAULT_KEY, a Worker secret kept outside the database. So the database on its own holds
+ * usernames and unreadable data; only this server, for that account's own signed-in devices,
+ * unlocks the key.
  */
 
 export interface Env {
@@ -326,7 +326,7 @@ async function authCallback(req: Request, url: URL, env: Env) {
     const waiting = randomToken();
     stmts.push(env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(waiting, name.toLowerCase(), now, now));
     stmts.push(env.DB.prepare('INSERT OR REPLACE INTO auth_pending (id, token, user, created, ready) VALUES (?, ?, ?, ?, ?)').bind(pending, waiting, name, now, sameDevice ? 1 : 0));
-    stmts.push(env.DB.prepare('DELETE FROM auth_begin WHERE id = ? OR created < ?').bind(pending, now - PICKUP_WINDOW));
+    stmts.push(env.DB.prepare('DELETE FROM auth_begin WHERE id = ?').bind(pending), ...dropExpiredPickups(env, now));
     if (!sameDevice) confirm = `&confirm=${pending}`;
   }
   await env.DB.batch(stmts);
@@ -335,6 +335,20 @@ async function authCallback(req: Request, url: URL, env: Env) {
 
 const PICKUP_WINDOW = 15 * 60_000;
 
+/**
+ * Sign-ins that were started but never finished or never picked up: the registration, the waiting
+ * row, and the session that was made for an app that never collected it (it would otherwise stay
+ * valid, and count as a device in the owner stats).
+ */
+const dropExpiredPickups = (env: Env, now: number) => {
+  const old = now - PICKUP_WINDOW;
+  return [
+    env.DB.prepare('DELETE FROM sessions WHERE token IN (SELECT token FROM auth_pending WHERE created < ? AND token IS NOT NULL)').bind(old),
+    env.DB.prepare('DELETE FROM auth_pending WHERE created < ?').bind(old),
+    env.DB.prepare('DELETE FROM auth_begin WHERE created < ?').bind(old),
+  ];
+};
+
 /** The app registers its pickup id (and so its connection) before sending you to Last.fm. */
 async function authBegin(req: Request, env: Env) {
   const ip = req.headers.get('CF-Connecting-IP') ?? '';
@@ -342,8 +356,12 @@ async function authBegin(req: Request, env: Env) {
   const body = (await req.json().catch(() => ({}))) as { id?: unknown };
   const id = typeof body.id === 'string' ? body.id : '';
   if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
-  // OR IGNORE: an id, once registered, keeps the connection it was registered from
-  await env.DB.prepare('INSERT OR IGNORE INTO auth_begin (id, ip, created) VALUES (?, ?, ?)').bind(id, ip, Date.now()).run();
+  const now = Date.now();
+  await env.DB.batch([
+    // OR IGNORE: an id, once registered, keeps the connection it was registered from
+    env.DB.prepare('INSERT OR IGNORE INTO auth_begin (id, ip, created) VALUES (?, ?, ?)').bind(id, ip, now),
+    ...dropExpiredPickups(env, now),
+  ]);
   return json({ ok: true });
 }
 
@@ -365,11 +383,16 @@ async function authConfirm(req: Request, env: Env) {
 async function authPoll(url: URL, env: Env) {
   const id = url.searchParams.get('id') ?? '';
   if (!/^[0-9a-f]{32}$/.test(id)) return json({ error: 'bad id' }, 400);
-  const old = Date.now() - PICKUP_WINDOW;
+  const now = Date.now();
   const row = await env.DB.prepare('SELECT token, user, created FROM auth_pending WHERE id = ? AND token IS NOT NULL AND ready = 1').bind(id).first<{ token: string; user: string; created: number }>();
   if (!row) return json({ pending: true });
-  await env.DB.prepare('DELETE FROM auth_pending WHERE id = ? OR created < ?').bind(id, old).run();
-  if (row.created < old) return json({ pending: true });
+  // too late: dropped along with its session, like any other expired sign-in
+  if (row.created < now - PICKUP_WINDOW) {
+    await env.DB.batch(dropExpiredPickups(env, now));
+    return json({ pending: true });
+  }
+  // collected: the session now belongs to the app, only the waiting row goes
+  await env.DB.prepare('DELETE FROM auth_pending WHERE id = ?').bind(id).run();
   return json({ token: row.token, user: row.user });
 }
 
@@ -409,7 +432,7 @@ async function collectBlobs(env: Env, user: string) {
 async function blobsMissing(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const body = (await req.json()) as { ids?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { ids?: unknown };
   const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter((x): x is string => typeof x === 'string' && BLOB_ID.test(x)))].slice(0, 500) : [];
   const have = new Set<string>();
   for (let i = 0; i < ids.length; i += 90) {
@@ -584,6 +607,7 @@ async function deleteAccount(req: Request, env: Env) {
     ['projects', 'images', 'settings', 'chunks', 'blobs', 'vault', 'sessions'].map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE user = ?`).bind(user)).concat([
       env.DB.prepare('DELETE FROM users WHERE name = ?').bind(user),
       env.DB.prepare('DELETE FROM visitors WHERE name = ?').bind(user),
+      env.DB.prepare('DELETE FROM auth_pending WHERE lower(user) = ?').bind(user),
     ]),
   );
   console.log(JSON.stringify({ evt: 'account-deleted' }));
@@ -626,7 +650,8 @@ interface SyncIn {
 async function sync(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const body = (await req.json()) as SyncIn;
+  const body = (await req.json().catch(() => null)) as SyncIn | null;
+  if (!body || typeof body !== 'object') return json({ error: 'bad request' }, 400);
   const now = Date.now();
   // with a vault, refuse anything readable (e.g. from an old, not yet updated copy of the app)
   const locked = !!(await env.DB.prepare('SELECT 1 AS x FROM vault WHERE user = ?').bind(user).first());
