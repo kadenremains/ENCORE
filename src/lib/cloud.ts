@@ -450,7 +450,7 @@ export async function confirmHandoff(): Promise<void> {
   handoff.confirm = null;
 }
 
-/** On the "go back to the app" page: use Encore here in Safari instead. */
+/** On the "go back to the app" page: use Encore here in this browser instead. */
 export function continueSignInHere() {
   if (!handoff) return;
   try {
