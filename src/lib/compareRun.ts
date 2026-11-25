@@ -30,7 +30,8 @@ export async function runComparison(name: string, spec: RangeSpec): Promise<Comp
   const theirLib = hist ? await friendLibrary(info.name, albumPrefs.fixes) : null;
   if (theirLib) {
     const me = sideFromLibrary(lib, range, myName, user?.image);
-    const them = sideFromLibrary(theirLib, range, info.name, info.image);
+    // your "skip breaks" applies to your side only
+    const them = sideFromLibrary(theirLib, { from: range.from, to: range.to }, info.name, info.image);
     result = { cmp: compare(me, them), me, them, full: true, note: label, info };
   } else {
     const p = nearestPeriod(range);

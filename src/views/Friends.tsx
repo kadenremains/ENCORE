@@ -204,7 +204,8 @@ export function FriendProfile({ name }: { name: string }) {
     };
   }, [theirLib, info, name, near.period, apiKey]);
 
-  const stats = useMemo(() => (theirLib ? getStats(theirLib, range) : null), [theirLib, range]);
+  // your "skip breaks" setting doesn't cut their stats
+  const stats = useMemo(() => (theirLib ? getStats(theirLib, { from: range.from, to: range.to }) : null), [theirLib, range]);
 
   if (err && !info) {
     return (
