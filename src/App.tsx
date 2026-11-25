@@ -7,7 +7,7 @@ import { Shell } from './views/Shell';
 import { Overview } from './views/stats/Overview';
 import { TopView } from './views/stats/TopView';
 import { EntityView } from './views/stats/EntityView';
-import { Listening } from './views/stats/Listening';
+import { History } from './views/stats/History';
 import { Records } from './views/stats/Records';
 import { FirstSync } from './views/FirstSync';
 import { initCloud, setOnSignedIn, setOnSignedOut, useCloud } from './lib/cloud';
@@ -121,8 +121,8 @@ function Main() {
     case 'entity':
       page = <EntityView key={`${route.kind}${route.artist}${route.title}`} kind={route.kind} artist={route.artist} title={route.title} />;
       break;
-    case 'listening':
-      page = <Listening />;
+    case 'history':
+      page = <History view={route.view} />;
       break;
     case 'records':
       page = <Records />;

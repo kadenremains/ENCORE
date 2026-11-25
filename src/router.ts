@@ -9,7 +9,7 @@ export type Route =
   | { name: 'overview' }
   | { name: 'top'; kind: EntityKind }
   | { name: 'entity'; kind: EntityKind; artist: string; title: string }
-  | { name: 'listening' }
+  | { name: 'history'; view: 'scrobbles' | 'patterns' }
   | { name: 'records' }
   | { name: 'create' }
   | { name: 'edit'; id: string }
@@ -44,8 +44,10 @@ export function parseRoute(hash: string): Route {
     case 'song':
       if (b && c) return { name: 'entity', kind: a === 'album' ? 'album' : 'track', artist: dec(b), title: dec(c) };
       break;
-    case 'listening':
-      return { name: 'listening' };
+    case 'history':
+      return { name: 'history', view: b === 'patterns' ? 'patterns' : 'scrobbles' };
+    case 'listening': // old link: the charts are History → Patterns now
+      return { name: 'history', view: 'patterns' };
     case 'records':
       return { name: 'records' };
     case 'create':
@@ -69,8 +71,8 @@ export function routePath(r: Route): string {
       return r.kind === 'artist' ? '#/artists' : r.kind === 'album' ? '#/albums' : '#/songs';
     case 'entity':
       return r.kind === 'artist' ? `#/artist/${enc(r.artist)}` : `#/${r.kind === 'album' ? 'album' : 'song'}/${enc(r.artist)}/${enc(r.title)}`;
-    case 'listening':
-      return '#/listening';
+    case 'history':
+      return r.view === 'patterns' ? '#/history/patterns' : '#/history';
     case 'records':
       return '#/records';
     case 'create':

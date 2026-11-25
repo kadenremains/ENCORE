@@ -9,6 +9,7 @@ import type { EntityKind } from '../../lib/types';
 import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
 import { MismatchNote } from '../Cleanup';
+import { PlaysList } from './History';
 import { useApp } from '../../store';
 import { albumKey } from '../../lib/library';
 
@@ -153,6 +154,12 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
             <CalendarHeatmap counts={er.dayCounts} startDay={heatStart} endDay={heatEnd} />
           </Panel>
         </>
+      )}
+
+      {er.plays > 0 && (
+        <Panel title="Plays" right={<span className="muted small">{fmtNum(er.plays)} in {label}</span>}>
+          <PlaysList kind={kind} idx={idx} />
+        </Panel>
       )}
 
       {kind === 'track' && lib.tracks[idx].single && <SingleNote singleKey={lib.tracks[idx].single!} />}

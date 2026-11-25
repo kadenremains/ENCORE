@@ -86,7 +86,7 @@ export function Overview() {
         />
       </Panel>
 
-      <Panel title="Every day" right={<a className="see-all" href={routePath({ name: 'listening' })}>Listening →</a>}>
+      <Panel title="Every day" right={<a className="see-all" href={routePath({ name: 'history', view: 'patterns' })}>Patterns →</a>}>
         <CalendarHeatmap counts={stats.dayCounts()} startDay={heatStart} endDay={heatEnd} />
       </Panel>
 

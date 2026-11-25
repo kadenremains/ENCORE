@@ -194,7 +194,7 @@ export function applyFixes(rows: StoredScrobble[], fixes: Fix[] | undefined): St
     }
     if (ar === r.ar && tr === r.tr && al === r.al) out[i] = r;
     else {
-      const c: StoredScrobble = { ...r, ar, tr, al };
+      const c: StoredScrobble = { ...r, ar, tr, al, orig: { ...(r.orig ?? { ar: r.ar, tr: r.tr, al: r.al }), merged: true } };
       if (al !== r.al) delete c.img; // the old release's cover doesn't belong to the new one
       out[i] = c;
     }
@@ -265,7 +265,9 @@ const albumScore = (v: Variant) => v.tags.reduce((s, t) => s + (ALBUM_RANK[t] ??
 
 function make(kind: MismatchKind, key: string, artistKey: string, artist: string, title: string, variants: Variant[], score: (v: Variant) => number, trackKey?: string): Mismatch {
   variants.sort((a, b) => b.plays - a.plays);
-  const suggested = pickBest(variants, score);
+  let suggested = pickBest(variants, score);
+  // a song you mostly play from its single: don't suggest an album you've barely played it from
+  if (kind === 'song-albums' && variants[suggested].plays * 4 < variants[0].plays && variants[0].name) suggested = 0;
   // nothing but spelling apart (accents, apostrophes, punctuation): say so on the odd ones out
   if (kind !== 'song-albums' && variants.every((v) => !v.tags.length)) variants.forEach((v, i) => i !== suggested && v.tags.push('spelling'));
   return {
@@ -434,5 +436,7 @@ export function isObviousSingle(m: Mismatch) {
   if (m.kind !== 'song-albums') return false;
   const keep = m.variants[m.suggested];
   if (keep.tags.some((t) => t === 'no-album' || t === 'single' || t === 'named-after-song')) return false;
+  // played more as a single than from the album (say a single tacked onto a deluxe you played once): ask, don't assume
+  if (keep.plays < m.plays - keep.plays) return false;
   return m.variants.every((v, i) => i === m.suggested || v.tags.some((t) => t === 'single' || t === 'named-after-song' || t === 'no-album'));
 }

@@ -23,7 +23,7 @@ const TABS: { label: string; short: string; route: Route; match: (r: Route) => b
   { label: 'Artists', short: 'Charts', route: { name: 'top', kind: 'artist' }, match: (r) => (r.name === 'top' || r.name === 'entity') && r.kind === 'artist', icon: '≡' },
   { label: 'Albums', short: 'Albums', route: { name: 'top', kind: 'album' }, match: (r) => (r.name === 'top' || r.name === 'entity') && r.kind === 'album', icon: '▣' },
   { label: 'Songs', short: 'Songs', route: { name: 'top', kind: 'track' }, match: (r) => (r.name === 'top' || r.name === 'entity') && r.kind === 'track', icon: '♪' },
-  { label: 'Listening', short: 'Listening', route: { name: 'listening' }, match: (r) => r.name === 'listening', icon: '▦' },
+  { label: 'History', short: 'History', route: { name: 'history', view: 'scrobbles' }, match: (r) => r.name === 'history', icon: '▤' },
   { label: 'Records', short: 'Records', route: { name: 'records' }, match: (r) => r.name === 'records', icon: '★' },
   { label: 'Create', short: 'Create', route: { name: 'create' }, match: (r) => r.name === 'create', icon: '✦' },
 ];

@@ -4,13 +4,13 @@ import { BarChart, CalendarHeatmap, Delta, Kpi, Panel, Punchcard, fmtDay } from 
 import { fmtNum } from '../../render/primitives';
 import { entityPath } from '../../router';
 import { dayToDate } from '../../lib/library';
-import { EmptyRange } from './Overview';
 
 type Bucket = 'day' | 'week' | 'month' | 'year';
 
 const breakNote = (days?: number) => (days ? ` · after a ${days >= 60 ? `${Math.round(days / 30)}-month` : `${days}-day`} break` : '');
 
-export function Listening() {
+/** History → Patterns: when you listen (the page this used to be, "Listening"). */
+export function Patterns() {
   const { stats, prev, label, lib } = useRangeStats();
   const span = stats.spanDays;
   const [bucket, setBucket] = useState<Bucket>(span <= 45 ? 'day' : span <= 200 ? 'week' : span <= 1500 ? 'month' : 'year');
@@ -39,7 +39,7 @@ export function Listening() {
     });
   }, [stats, lib]);
 
-  if (!stats.total) return <EmptyRange label={label} />;
+  if (!stats.total) return <p className="empty big">No scrobbles in {label} yet. Pick another range above.</p>;
 
   const tl = stats.timeline(bucket);
   const months = stats.monthTable();
@@ -58,14 +58,7 @@ export function Listening() {
   const dayOf = (d: Date) => Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000);
 
   return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <div className="eyebrow">{label} · when you listen</div>
-          <h1 className="page-title">Listening</h1>
-        </div>
-      </div>
-
+    <>
       <div className="stats-row">
         <Kpi value={fmtNum(stats.activeDays)} label="Days with music" sub={`of ${fmtNum(span)} days`} delta={<Delta cur={stats.activeDays} prev={prev?.activeDays} />} />
         <Kpi value={(stats.total / Math.max(1, stats.activeDays)).toFixed(1)} label="Plays per active day" />
@@ -151,6 +144,6 @@ export function Listening() {
           </table>
         </Panel>
       </div>
-    </div>
+    </>
   );
 }

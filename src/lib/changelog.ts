@@ -12,6 +12,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.8',
+    date: '2026-11-25',
+    title: 'History',
+    notes: [
+      { text: 'Listening is now History. Scrobbles lists every play in your range, newest first, by day (with each day’s plays and listening time): search it, or jump to any date. Patterns has the charts that were on Listening.' },
+      { text: 'Every song, album and artist page lists its plays in the range.' },
+      { text: 'Plays Encore shows differently from Last.fm say so (“merged”, “fixed”, with the name Last.fm has), and batch-scrobbled ones are marked.' },
+      { text: 'Clean up: the one-tap singles merge skips songs you’ve played more as a single than from the album, and those suggest the single instead.' },
+    ],
+  },
+  {
     version: '2.6.4',
     date: '2026-11-24',
     title: 'Clearer way back after signing in',

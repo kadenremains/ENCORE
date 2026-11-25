@@ -8,6 +8,8 @@ export interface StoredScrobble {
   tr: string; // track
   al: string; // album ('' if none)
   img?: string; // last.fm album image url (only stored when present)
+  /** set while building stats when Encore shows a scrobble under other names: what Last.fm has */
+  orig?: { ar: string; tr: string; al: string; merged: boolean };
 }
 
 export interface UserInfo {

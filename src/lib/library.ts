@@ -28,6 +28,8 @@ export interface Library {
   batches?: import('./tidy').Batches;
   /** scrobbles whose names came with codes left in (shown decoded; pointed out in Clean up) */
   garbled?: import('./tidy').Garbled[];
+  /** scrobble index -> its names on Last.fm, for scrobbles shown under other names (merged / decoded) */
+  orig?: Map<number, { ar?: string; tr?: string; al?: string; merged: boolean }>;
 }
 
 export interface SingleInfo {

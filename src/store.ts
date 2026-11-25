@@ -210,6 +210,19 @@ async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Libra
   const lib = buildLibrary(fixed, { albumArtists, albumTrackCounts: counts, hideSingles: prefs.hideSingles, keepAlbums: new Set(prefs.keep) });
   lib.batches = batches;
   lib.garbled = garbled.reverse(); // newest first
+  const orig: NonNullable<Library['orig']> = new Map();
+  for (let i = 0; i < fixed.length; i++) {
+    const o = fixed[i].orig;
+    if (!o) continue;
+    const r = fixed[i];
+    // only the names that differ from what's shown (Last.fm's spelling of them)
+    const d: { ar?: string; tr?: string; al?: string; merged: boolean } = { merged: o.merged };
+    if (o.ar !== r.ar) d.ar = o.ar;
+    if (o.tr !== r.tr) d.tr = o.tr;
+    if (o.al !== r.al) d.al = o.al;
+    if (d.ar !== undefined || d.tr !== undefined || d.al !== undefined) orig.set(i, d);
+  }
+  lib.orig = orig;
   installHints(lib);
   findMismatchesLater(fixed);
   return lib;

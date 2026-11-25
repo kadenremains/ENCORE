@@ -42,7 +42,7 @@ export function decodeNames(rows: StoredScrobble[], found?: Garbled[]): StoredSc
     const al = decodeName(r.al);
     if (ar === r.ar && tr === r.tr && al === r.al) continue;
     out ??= rows.slice();
-    out[i] = { ...r, ar, tr, al };
+    out[i] = { ...r, ar, tr, al, orig: { ar: r.ar, tr: r.tr, al: r.al, merged: false } };
     found?.push({ ts: r.ts, raw: { ar: r.ar, tr: r.tr, al: r.al }, fixed: { ar, tr, al } });
   }
   return out ?? rows;

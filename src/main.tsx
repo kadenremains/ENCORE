@@ -31,7 +31,7 @@ installLastfmLinksInSafari();
 // Settings → Stats → start page (only when opening the app at its front page)
 if (!location.hash || location.hash === '#/' || location.hash === '#') {
   const start = getPrefs().startPage;
-  if (start !== 'overview') history.replaceState(null, '', `${location.pathname}${location.search}#/${start}`);
+  if (start !== 'overview') history.replaceState(null, '', `${location.pathname}${location.search}#/${start === 'listening' ? 'history' : start}`);
 }
 applyAppearance(getPrefs());
 initLook();

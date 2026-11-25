@@ -4284,3 +4284,98 @@ kbd {
 .onboard-card.handoff p {
   margin: 10px 0;
 }
+
+/* ---------------- History: every scrobble ---------------- */
+.seg a[aria-current='page'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.history-switch {
+  align-self: flex-end;
+}
+.history-tools {
+  margin-bottom: 14px;
+  align-items: center;
+}
+.history-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.history-jump .text-input {
+  width: auto;
+  flex: 0 0 auto;
+}
+.hist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hist-day {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 0 6px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: sticky;
+  top: var(--hist-sticky, 0px);
+  background: var(--bg);
+  z-index: 1;
+}
+.panel-box .hist-day {
+  background: var(--panel);
+}
+.hist-day:first-child {
+  padding-top: 4px;
+}
+.hist-row {
+  display: grid;
+  grid-template-columns: 62px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.hist-row.no-img {
+  grid-template-columns: 62px minmax(0, 1fr);
+}
+.hist-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hist-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hist-title {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hist-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hist-meta a {
+  color: inherit;
+  text-decoration: none;
+}
+.hist-title:hover,
+.hist-meta a:hover {
+  text-decoration: underline;
+}
+.hist-flags {
+  overflow-wrap: anywhere;
+}
+.hist-flags .mm-tag:first-child {
+  margin-left: 0;
+}

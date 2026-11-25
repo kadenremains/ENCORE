@@ -450,7 +450,7 @@ function StatsTab() {
             <option value="artists">Artists</option>
             <option value="albums">Albums</option>
             <option value="songs">Songs</option>
-            <option value="listening">Listening</option>
+            <option value="listening">History</option>
             <option value="records">Records</option>
             <option value="create">Create</option>
           </select>
