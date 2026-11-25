@@ -48,13 +48,15 @@ function Versus({ name }: { name: string }) {
   const [err, setErr] = useState<FriendError | Error | null>(null);
   const [reload, setReload] = useState(0);
 
+  // (re-read when a download of their history finishes, wherever it was started)
   useEffect(() => {
+    if (running) return;
     let live = true;
     void historyState(name).then((h) => live && setHist(h ?? null));
     return () => {
       live = false;
     };
-  }, [name, reload]);
+  }, [name, reload, running]);
 
   // their full history if you downloaded it (any range), else Last.fm's top lists
   useEffect(() => {

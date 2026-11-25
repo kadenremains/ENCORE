@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../store';
 import { navigate, routePath, entityPath } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
@@ -163,21 +163,32 @@ export function FriendProfile({ name }: { name: string }) {
     };
   }, [name, apiKey]);
 
-  // all their stats: their history, downloaded by itself the first time (you can stop it)
+  // all their stats: their history, downloaded by itself the first time (once per visit; you can stop it)
+  const started = useRef(false);
   useEffect(() => {
-    if (hist === undefined || running || !info) return;
+    if (hist !== null || running || !info || stopped || started.current) return;
+    started.current = true;
+    downloadHistory(name, apiKey).catch((e) => setErr((e as Error).message));
+  }, [hist, running, info, name, apiKey, stopped]);
+
+  // a download (this one, or one started elsewhere) just finished: pick it up
+  useEffect(() => {
+    if (running) return;
     let live = true;
-    if (hist) {
-      void friendLibrary(name, fixes).then((l) => live && setTheirLib(l));
-    } else if (!stopped) {
-      downloadHistory(name, apiKey)
-        .then(async () => live && setHist((await historyState(name)) ?? null))
-        .catch((e) => live && setErr((e as Error).message));
-    }
+    void historyState(name).then((h) => live && setHist(h ?? null));
     return () => {
       live = false;
     };
-  }, [hist, running, info, name, apiKey, fixes, stopped]);
+  }, [running, name]);
+
+  useEffect(() => {
+    if (!hist) return;
+    let live = true;
+    void friendLibrary(name, fixes).then((l) => live && setTheirLib(l));
+    return () => {
+      live = false;
+    };
+  }, [hist, name, fixes]);
 
   // meanwhile (or if you stopped it): Last.fm's top lists for the nearest period
   const near = useMemo(() => nearestPeriod(range), [range]);
@@ -252,15 +263,12 @@ export function FriendProfile({ name }: { name: string }) {
           setStopped(true);
           cancelDownload(name);
         }}
-        onGet={() => setStopped(false)}
-        onUpdate={async () => {
-          try {
-            await downloadHistory(name, apiKey);
-            setTheirLib(null);
-            setHist((await historyState(name)) ?? null);
-          } catch (e) {
-            setErr((e as Error).message);
-          }
+        onGet={() => {
+          started.current = false;
+          setStopped(false);
+        }}
+        onUpdate={() => {
+          downloadHistory(name, apiKey).catch((e) => setErr((e as Error).message));
         }}
         onRemove={async () => {
           await removeHistory(name);
