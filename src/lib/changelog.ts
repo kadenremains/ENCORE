@@ -12,6 +12,14 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.8.1',
+    date: '2026-11-25',
+    title: 'Safer home-screen sign-in',
+    notes: [
+      { text: 'A sign-in started in the home-screen app only finishes there when you approve it from the same phone. Otherwise Safari asks first, so a sign-in link someone else sends you can’t sign them in as you.' },
+    ],
+  },
+  {
     version: '2.8',
     date: '2026-11-25',
     title: 'History',
