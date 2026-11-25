@@ -4,6 +4,7 @@ import type { EntityKind } from './types';
 import { clearTombstone, localChanged, markDeleted } from './changes';
 import { getPrefs } from './prefs';
 import { API_URL } from '../config';
+import { overridesDb } from './picStore';
 
 /* ---------------- in-memory state + subscriptions ---------------- */
 
@@ -24,7 +25,7 @@ export function subscribeImages(l: () => void) {
 }
 
 export async function loadImageState() {
-  const [ov, cache] = await Promise.all([db.overrides.toArray(), db.imgcache.toArray()]);
+  const [ov, cache] = await Promise.all([overridesDb.all(), db.imgcache.toArray()]);
   ov.forEach((o) => overrides.set(o.key, o));
   const staleBefore = Date.now() - 1000 * 60 * 60 * 24 * 14; // retry misses after 2 weeks
   cache.forEach((c) => {
@@ -45,7 +46,7 @@ export async function setOverride(o: Omit<ImageOverride, 'updated'>) {
   const full = { ...o, updated: Date.now() };
   overrides.set(o.key, full);
   emit();
-  await db.overrides.put(full);
+  await overridesDb.put(full);
   clearTombstone('image', o.key);
   localChanged();
 }
@@ -53,7 +54,7 @@ export async function setOverride(o: Omit<ImageOverride, 'updated'>) {
 export async function removeOverride(key: string) {
   overrides.delete(key);
   emit();
-  await db.overrides.delete(key);
+  await overridesDb.delete(key);
   markDeleted('image', key);
 }
 
@@ -63,7 +64,7 @@ export async function applyRemoteOverride(o: ImageOverride) {
   if (local && local.updated >= o.updated) return;
   overrides.set(o.key, o);
   emit();
-  await db.overrides.put(o);
+  await overridesDb.put(o);
 }
 
 export async function applyRemoteRemoval(key: string, updated: number) {
@@ -71,7 +72,7 @@ export async function applyRemoteRemoval(key: string, updated: number) {
   if (!local || local.updated > updated) return;
   overrides.delete(key);
   emit();
-  await db.overrides.delete(key);
+  await overridesDb.delete(key);
 }
 
 /* ---------------- library hints (Last.fm art already in scrobbles) ---------------- */
@@ -410,13 +411,13 @@ export async function urlToDataUrl(url: string): Promise<{ src: string; width: n
 /** One-time: replace custom pictures that point at other websites with our own saved copy. */
 export async function embedLinkedOverrides(): Promise<number> {
   let changed = 0;
-  for (const o of await db.overrides.toArray()) {
+  for (const o of await overridesDb.all()) {
     if (!/^https?:/.test(o.src)) continue;
     const got = await urlToDataUrl(o.src);
     if (!got) continue;
     const next = { ...o, src: got.src, updated: Date.now() };
     overrides.set(o.key, next);
-    await db.overrides.put(next);
+    await overridesDb.put(next);
     changed++;
   }
   if (changed) {
@@ -429,12 +430,12 @@ export async function embedLinkedOverrides(): Promise<number> {
 /** One-time cleanup: shrink oversized custom pictures saved before uploads were compressed. */
 export async function shrinkStoredOverrides(): Promise<number> {
   let changed = 0;
-  for (const o of await db.overrides.toArray()) {
+  for (const o of await overridesDb.all()) {
     const src = await shrinkDataUrl(o.src);
     if (src !== o.src) {
       const next = { ...o, src, updated: Date.now() };
       overrides.set(o.key, next);
-      await db.overrides.put(next);
+      await overridesDb.put(next);
       changed++;
     }
   }

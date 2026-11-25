@@ -38,10 +38,18 @@ export interface MonthChunk {
   im: Uint16Array | Uint32Array; // '' = no picture
 }
 
+/** A picture, stored once however many wrappeds and custom pictures use it (see picStore.ts). */
+export interface StoredPic {
+  id: string; // SHA-256 of the image bytes (hex, 40 chars)
+  mime: string;
+  bytes: Uint8Array;
+}
+
 class WrappedDB extends Dexie {
   /** the old one-record-per-play format; emptied when it's moved into `months` */
   scrobbles!: Table<StoredScrobble, number>;
   months!: Table<MonthChunk, number>;
+  pics!: Table<StoredPic, string>;
   overrides!: Table<ImageOverride, string>;
   imgcache!: Table<ImageCacheEntry, string>;
   projects!: Table<Project, string>;
@@ -57,6 +65,7 @@ class WrappedDB extends Dexie {
       meta: 'key',
     });
     this.version(2).stores({ months: 'k' });
+    this.version(3).stores({ pics: 'id' });
   }
 }
 

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store';
-import { db } from '../lib/db';
 import { newProject, uid, TEMPLATES, THEMES, FORMATS, type Project } from '../editor/model';
 import { SlideCanvas, backgroundCss } from '../render/SlideCanvas';
 import { navigate } from '../router';
 import { useRangeStats } from './stats/useRangeStats';
 import { localChanged, markDeleted } from '../lib/changes';
 import { isRejected, lastPushedAt, startSignIn, useCloud } from '../lib/cloud';
+import { projectsDb } from '../lib/picStore';
 
 export function Create() {
   const exploreRange = useApp((s) => s.exploreRange);
@@ -19,7 +19,7 @@ export function Create() {
   const pushedAt = lastPushedAt();
 
   useEffect(() => {
-    const load = () => db.projects.orderBy('updated').reverse().toArray().then(setProjects);
+    const load = () => projectsDb.newestFirst().then(setProjects);
     load();
     window.addEventListener('sw:remote-change', load);
     return () => window.removeEventListener('sw:remote-change', load);
@@ -27,7 +27,7 @@ export function Create() {
 
   const create = async (templateId: string) => {
     const p = newProject(templateId, exploreRange);
-    await db.projects.put(p);
+    await projectsDb.put(p);
     localChanged();
     navigate({ name: 'edit', id: p.id });
   };
@@ -104,7 +104,7 @@ export function Create() {
                     className="mini-btn"
                     onClick={async () => {
                       const copy = { ...structuredClone(p), id: uid(), name: `${p.name} copy`, updated: Date.now(), created: Date.now() };
-                      await db.projects.put(copy);
+                      await projectsDb.put(copy);
                       localChanged();
                       setProjects((ps) => [copy, ...ps]);
                     }}
@@ -115,7 +115,7 @@ export function Create() {
                     className="mini-btn danger"
                     onClick={async () => {
                       if (!confirm(`Delete “${p.name}”?`)) return;
-                      await db.projects.delete(p.id);
+                      await projectsDb.delete(p.id);
                       markDeleted('project', p.id);
                       setProjects((ps) => ps.filter((x) => x.id !== p.id));
                     }}

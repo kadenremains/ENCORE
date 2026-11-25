@@ -23,6 +23,7 @@ import { CleanupTab, useOpenMismatches } from './Cleanup';
 import { ImagesManager } from './ImagesManager';
 import { MyPictureControls } from '../ui/MyPicture';
 import { SignInWaiting } from '../ui/SignInWaiting';
+import { measureStorage, type StorageUse } from '../lib/storageUsage';
 
 const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'account', label: 'Account & sync', icon: '◉', desc: 'Last.fm, devices, API key' },
@@ -76,6 +77,60 @@ export function Settings({ tab, q }: { tab: SettingsTab; q?: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Settings → Data & storage: where the space goes, measured from the data itself. */
+function StorageBreakdown({ version }: { version: number }) {
+  const lib = useApp((s) => s.lib);
+  const [u, setU] = useState<StorageUse | null>(null);
+  useEffect(() => {
+    let live = true;
+    void measureStorage().then((r) => live && setU(r));
+    return () => {
+      live = false;
+    };
+  }, [lib, version]);
+  if (!u) return null;
+  const mb = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`);
+  const rows: { label: string; bytes: number; note?: string }[] = [
+    { label: 'Pictures', bytes: u.pictures + u.inlinePictures, note: u.inlinePictures ? `${fmtNum(u.pictureCount)} stored once each, plus ${mb(u.inlinePictures)} still inside wrappeds (moved out shortly)` : `${fmtNum(u.pictureCount)}, each stored once however many wrappeds use it` },
+    { label: 'Scrobbles', bytes: u.scrobbles, note: `${fmtNum(storedCount(lib))} plays, packed` },
+    { label: 'Wrappeds & picture settings', bytes: u.wrappeds },
+    { label: 'Artwork lookups', bytes: u.lookups, note: 'which picture belongs to which artist, album and song' },
+    { label: 'Settings and Last.fm details', bytes: u.other },
+  ];
+  const counted = rows.reduce((n, r) => n + r.bytes, 0);
+  const extra = u.browserTotal !== undefined ? Math.max(0, u.browserTotal - counted) : undefined;
+  const max = Math.max(1, ...rows.map((r) => r.bytes), extra ?? 0);
+  return (
+    <Group
+      title="Where the space goes"
+      right={u.browserTotal !== undefined ? <span className="muted small">{mb(u.browserTotal)} in total</span> : undefined}
+      desc="Measured from what Encore keeps. The browser's total also includes its own bookkeeping, and space from deleted data that it hasn't handed back yet; that shrinks over time on its own."
+    >
+      <ul className="space-list">
+        {rows.map((r) => (
+          <li key={r.label}>
+            <div className="space-row">
+              <span>{r.label}</span>
+              <b>{mb(r.bytes)}</b>
+            </div>
+            <span className="space-bar" style={{ width: `${(r.bytes / max) * 100}%` }} />
+            {r.note && <span className="muted small">{r.note}</span>}
+          </li>
+        ))}
+        {extra !== undefined && (
+          <li>
+            <div className="space-row">
+              <span className="muted">Browser bookkeeping & space not yet handed back</span>
+              <b className="muted">{mb(extra)}</b>
+            </div>
+            <span className="space-bar faint" style={{ width: `${(extra / max) * 100}%` }} />
+          </li>
+        )}
+      </ul>
+    </Group>
   );
 }
 
@@ -773,6 +828,8 @@ function DataTab() {
         </div>
         <p className="muted small">Everything lives in this browser's storage. Your listening history is downloaded from Last.fm; wrappeds, pictures and settings are also kept on your account when sync is on.</p>
       </Group>
+
+      <StorageBreakdown version={version} />
 
       <Group title="Backup" desc="A file with all your wrappeds, custom pictures and settings. Handy without sync, or before trying something risky. Your scrobbles aren't included; they can always be downloaded again.">
         <Row label="Download a backup">

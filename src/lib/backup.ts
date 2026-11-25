@@ -1,8 +1,9 @@
-import { db, type ImageOverride } from './db';
+import { type ImageOverride } from './db';
 import { applyRemoteOverride, getOverride } from './images';
 import { bumpSettings, clearTombstone, localChanged } from './changes';
 import { applyAppSettings, getAppSettings } from './appSettings';
 import type { Project } from '../editor/model';
+import { overridesDb, projectsDb } from './picStore';
 
 /**
  * A backup file: your wrappeds, custom pictures and settings (not the scrobble history, which
@@ -24,8 +25,8 @@ export async function makeBackup(user?: string): Promise<File> {
     version: 1,
     created: Date.now(),
     user,
-    projects: await db.projects.toArray(),
-    images: await db.overrides.toArray(),
+    projects: await projectsDb.all(),
+    images: await overridesDb.all(),
     settings: getAppSettings(),
   };
   const day = new Date().toISOString().slice(0, 10);
@@ -45,10 +46,10 @@ export async function restoreBackup(file: File, opts: { settings: boolean }): Pr
   let projects = 0;
   for (const p of data.projects) {
     if (!p?.id || !Array.isArray(p.slides)) continue;
-    const local = await db.projects.get(p.id);
+    const local = await projectsDb.get(p.id);
     if (local && local.updated >= p.updated) continue;
     // a fresh timestamp so the restored copy syncs to your other devices too
-    await db.projects.put({ ...p, updated: now });
+    await projectsDb.put({ ...p, updated: now });
     clearTombstone('project', p.id);
     projects++;
   }

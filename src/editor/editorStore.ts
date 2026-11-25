@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { db } from '../lib/db';
 import { localChanged } from '../lib/changes';
 import { makeBlock, uid, type Block, type BlockType, type Project, type Slide } from './model';
+import { projectsDb } from '../lib/picStore';
 
 interface EditorState {
   project: Project | null;
@@ -31,14 +31,14 @@ interface EditorState {
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingSave: Project | null = null;
 
-function saveNow() {
+function saveNow(leaving = false) {
   clearTimeout(saveTimer);
   saveTimer = undefined;
   const p = pendingSave;
   pendingSave = null;
   if (!p) return;
-  db.projects
-    .put(p)
+  // leaving the app: written this instant, so nothing's lost if it closes
+  (leaving ? projectsDb.putNow(p) : projectsDb.put(p))
     .then(() => localChanged())
     .catch((e) => console.error('save failed', e));
 }
@@ -46,14 +46,14 @@ function saveNow() {
 function scheduleSave(p: Project) {
   pendingSave = p;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveNow, 400);
+  saveTimer = setTimeout(() => saveNow(), 400);
 }
 
 // leaving the app (switching apps on iPhone, closing the tab): write the last edit right away
 if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', saveNow);
+  window.addEventListener('pagehide', () => saveNow(true));
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveNow();
+    if (document.visibilityState === 'hidden') saveNow(true);
   });
 }
 

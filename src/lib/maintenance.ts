@@ -1,7 +1,7 @@
-import { db } from './db';
 import { embedLinkedOverrides, shrinkDataUrl, shrinkStoredOverrides } from './images';
 import { localChanged } from './changes';
 import type { Project } from '../editor/model';
+import { projectsDb } from './picStore';
 
 /** Shrink every oversized embedded picture in a wrapped. Returns true if anything changed. */
 export async function shrinkProjectImages(p: Project): Promise<boolean> {
@@ -43,10 +43,10 @@ export async function runMaintenance() {
     return;
   }
   let changed = 0;
-  for (const p of await db.projects.toArray()) {
+  for (const p of await projectsDb.all()) {
     if (await shrinkProjectImages(p)) {
       p.updated = Date.now();
-      await db.projects.put(p);
+      await projectsDb.put(p);
       changed++;
     }
   }

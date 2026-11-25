@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { API_URL } from '../config';
-import { db } from './db';
 import { setChangeListener, tombstones } from './changes';
 import { applyRemoteOverride, applyRemoteRemoval } from './images';
 import { blobId, fromB64, hashName, isSealed, loadDataKey, open, openPicture, seal, sealPicture, toB64, type DataKey } from './crypto';
 import type { Project } from '../editor/model';
+import { overridesDb, projectsDb } from './picStore';
 
 /* ---------------- local storage helpers ---------------- */
 
@@ -645,7 +645,7 @@ async function restorePictures(text: string, token: string, dk: DataKey, cache: 
 
 /** Server names of pictures -> their real names (hashed names can't be turned back otherwise). */
 async function pictureNames(dk: DataKey): Promise<Map<string, string>> {
-  const names = new Set<string>((await db.overrides.toCollection().primaryKeys()) as string[]);
+  const names = new Set<string>(await overridesDb.keys());
   for (const k of Object.keys(tombstones())) if (k.startsWith('image:')) names.add(k.slice(6));
   const out = new Map<string, string>();
   await Promise.all([...names].map(async (n) => out.set(await hashName(n, dk), n)));
@@ -683,13 +683,13 @@ async function doSync() {
     const retry = rejectedKeys();
     const pics = new Map<string, Picture>();
     const projects: RemoteProject[] = [];
-    for (const p of await db.projects.toArray()) {
+    for (const p of await projectsDb.all()) {
       if (!(p.updated > pushedAt || retry.has(`project:${p.id}`))) continue;
       const lifted = await liftPictures(JSON.stringify(p), dk, pics);
       projects.push({ id: p.id, data: await seal(lifted.text, dk), updated: p.updated, deleted: false, refs: lifted.refs });
     }
     const images: RemoteImage[] = [];
-    for (const o of await db.overrides.toArray()) {
+    for (const o of await overridesDb.all()) {
       const key = await nameFor(o.key);
       if (!(o.updated > pushedAt || retry.has(`image:${key}`))) continue;
       const lifted = await liftPictures(JSON.stringify({ key: o.key, src: o.src, zoom: o.zoom, x: o.x, y: o.y }), dk, pics);
@@ -766,7 +766,7 @@ async function describeRejected(keys: string[], sizes: Map<string, number>) {
     const kind = k.slice(0, i);
     const id = k.slice(i + 1);
     if (kind === 'project') {
-      const p = await db.projects.get(id);
+      const p = await projectsDb.get(id);
       names.push(`“${p?.name ?? 'a wrapped'}” (${mb(sizes.get(k) ?? 0)})`);
     } else names.push(`a picture (${mb(sizes.get(k) ?? 0)})`);
   }
@@ -792,10 +792,10 @@ async function applyRemote(res: SyncResponse, dk: DataKey | null, names?: Map<st
   };
   let changed = false;
   for (const r of res.projects) {
-    const local = await db.projects.get(r.id);
+    const local = await projectsDb.get(r.id);
     if (r.deleted) {
       if (local && local.updated <= r.updated) {
-        await db.projects.delete(r.id);
+        await projectsDb.delete(r.id);
         hooks?.onProjectChanged(null, r.id);
         changed = true;
       }
@@ -805,7 +805,7 @@ async function applyRemote(res: SyncResponse, dk: DataKey | null, names?: Map<st
         if (!text) continue;
         const p = JSON.parse(text) as Project;
         if (p.id !== r.id) continue;
-        await db.projects.put({ ...p, updated: r.updated });
+        await projectsDb.put({ ...p, updated: r.updated });
         hooks?.onProjectChanged(p, r.id);
         changed = true;
       } catch {

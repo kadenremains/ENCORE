@@ -5,10 +5,10 @@ import { Stage } from '../editor/Stage';
 import { Inspector } from '../editor/Inspector';
 import { BLOCK_LIBRARY, type Block, type BlockType } from '../editor/model';
 import { SlideCanvas } from '../render/SlideCanvas';
-import { db } from '../lib/db';
 import { deliverFiles, renderNodeToBlob, slugify } from '../lib/export';
 import { rangeLabel, resolveRange } from '../lib/range';
 import { navigate } from '../router';
+import { projectsDb } from '../lib/picStore';
 
 export function Editor({ id }: { id: string }) {
   const lib = useApp((s) => s.lib);
@@ -20,7 +20,7 @@ export function Editor({ id }: { id: string }) {
 
   useEffect(() => {
     if (!id) return;
-    db.projects.get(id).then((p) => (p ? load(p) : navigate({ name: 'create' })));
+    projectsDb.get(id).then((p) => (p ? load(p) : navigate({ name: 'create' })));
   }, [id, load]);
 
   // on phones, jump to the edit tab when something is double-tapped
