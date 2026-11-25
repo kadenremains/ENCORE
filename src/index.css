@@ -4663,3 +4663,53 @@ kbd {
 .modal.versus-reload p {
   margin: 0 0 14px;
 }
+
+/* ---------------- Friends: a friend's stats ---------------- */
+.friend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+  margin-bottom: 14px;
+}
+.friend-head-text {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.friend-head-text .page-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.friend-head-actions {
+  flex: 1 1 100%;
+}
+.history-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+}
+.history-status .progress {
+  flex: 1 1 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2);
+  overflow: hidden;
+}
+.history-status .progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.friend-range {
+  margin-bottom: 10px;
+}
+.friend-list li > .btn {
+  flex: 0 0 auto;
+}

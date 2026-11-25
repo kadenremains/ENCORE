@@ -15,18 +15,18 @@ export function FriendAvatar({ f, size = 30 }: { f: { name: string; image?: stri
   );
 }
 
-/** Overview: compare with a friend, and the friends you've compared with (one tap back). */
+/** Overview: your friends (tap one for their stats), and the way to the Friends page. */
 export function FriendStrip() {
   const demo = useApp((s) => s.demo);
   const list = useFriends((s) => s.list);
   if (demo) return null;
   return (
     <div className="friend-strip">
-      <a className="btn small" href={routePath({ name: 'compare' })}>
-        ⇄ Compare with a friend
+      <a className="btn small" href={routePath({ name: 'friends' })}>
+        ⇄ Friends
       </a>
       {list.slice(0, 6).map((f) => (
-        <a key={f.name} className="friend-chip" href={routePath({ name: 'compare', friend: f.name })} title={`You vs ${f.name}`}>
+        <a key={f.name} className="friend-chip" href={routePath({ name: 'friend', who: f.name })} title={`${f.name}’s stats`}>
           <FriendAvatar f={f} size={26} />
           <span>{f.name}</span>
         </a>
@@ -76,7 +76,7 @@ export function VsFriends({ kind, name, artist, mine }: { kind: EntityKind; name
     <div className="vs-friends">
       <span className="muted small">All time · you {fmtNum(mine)}</span>
       {rows.map(({ f, plays }) => (
-        <a key={f.name} className="friend-chip" href={routePath({ name: 'compare', friend: f.name })}>
+        <a key={f.name} className="friend-chip" href={routePath({ name: 'friend', who: f.name })}>
           <FriendAvatar f={f} size={20} />
           <span>
             {f.name} {plays ? fmtNum(plays) : '—'}

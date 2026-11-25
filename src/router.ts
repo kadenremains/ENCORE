@@ -12,6 +12,8 @@ export type Route =
   | { name: 'history'; view: 'scrobbles' | 'patterns' }
   | { name: 'records' }
   | { name: 'compare'; friend?: string }
+  | { name: 'friends' }
+  | { name: 'friend'; who: string }
   | { name: 'create' }
   | { name: 'edit'; id: string }
   | { name: 'settings'; tab: SettingsTab; q?: string };
@@ -52,7 +54,12 @@ export function parseRoute(hash: string): Route {
     case 'records':
       return { name: 'records' };
     case 'compare':
-      return b ? { name: 'compare', friend: dec(b) } : { name: 'compare' };
+      return b ? { name: 'compare', friend: dec(b) } : { name: 'friends' };
+    case 'friends':
+      return { name: 'friends' };
+    case 'friend':
+      if (b) return { name: 'friend', who: dec(b) };
+      return { name: 'friends' };
     case 'create':
       return { name: 'create' };
     case 'edit':
@@ -79,7 +86,11 @@ export function routePath(r: Route): string {
     case 'records':
       return '#/records';
     case 'compare':
-      return r.friend ? `#/compare/${enc(r.friend)}` : '#/compare';
+      return r.friend ? `#/compare/${enc(r.friend)}` : '#/friends';
+    case 'friends':
+      return '#/friends';
+    case 'friend':
+      return `#/friend/${enc(r.who)}`;
     case 'create':
       return '#/create';
     case 'edit':

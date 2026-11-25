@@ -11,13 +11,10 @@ import {
   KEEP_FOR,
   cancelDownload,
   downloadHistory,
-  fetchFriendInfo,
   addFriend,
   historyState,
   refreshFriendImage,
   removeFriend,
-  syncLastfmFriends,
-  useFriendSync,
   removeHistory,
   useDownloads,
   useFriends,
@@ -31,114 +28,12 @@ import { openVersusFilled } from '../editor/versusOpen';
 import { projectsDb } from '../lib/picStore';
 import { localChanged } from '../lib/changes';
 
-/** Compare: you and a friend, side by side. #/compare picks someone; #/compare/<name> compares. */
+/** You vs someone: #/compare/<name>. Picking someone is on the Friends page (#/friends). */
 export function Compare({ friend }: { friend?: string }) {
-  return friend ? <Versus name={friend} /> : <PickFriend />;
-}
-
-/* ------------------------------------------------------------------ picking someone */
-
-function PickFriend() {
-  const apiKey = useApp((s) => s.apiKey);
-  const demo = useApp((s) => s.demo);
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const go = async () => {
-    const n = name.trim();
-    if (!/^[\w.-]{2,30}$/.test(n)) return setErr('That isn’t a Last.fm username.');
-    setBusy(true);
-    setErr('');
-    try {
-      const info = await fetchFriendInfo(n, apiKey);
-      navigate({ name: 'compare', friend: info.name });
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="page compare">
-      <div className="page-head">
-        <div>
-          <div className="eyebrow">You vs. anyone on Last.fm</div>
-          <h1 className="page-title">Compare</h1>
-        </div>
-      </div>
-      {demo ? (
-        <p className="empty">Compare works with your own Last.fm account. Connect it from the start screen to compare with friends.</p>
-      ) : (
-        <>
-          <Panel title="Compare with">
-            <form
-              className="row gap compare-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void go();
-              }}
-            >
-              <input className="text-input" placeholder="Their Last.fm username" value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
-              <button className="btn primary" disabled={busy || !name.trim()}>
-                {busy ? 'Looking…' : 'Compare'}
-              </button>
-            </form>
-            {err && <p className="error small">{err}</p>}
-            <p className="muted small">Last.fm profiles are public, so they don’t need Encore or to sign in. Comparing doesn’t add anyone to your friends, and what Encore downloads about them stays on this device for a day.</p>
-          </Panel>
-          <FriendsPanel />
-        </>
-      )}
-    </div>
-  );
-}
-
-/** Your friends: Last.fm friends (you follow each other) by themselves, plus anyone you added. */
-function FriendsPanel() {
-  const list = useFriends((s) => s.list);
-  const sync = useFriendSync();
-  const username = useApp((s) => s.username);
-  const apiKey = useApp((s) => s.apiKey);
-  return (
-    <Panel
-      title="Your friends"
-      right={
-        <button className="mini-btn" disabled={sync.running} onClick={() => void syncLastfmFriends(username, apiKey)}>
-          {sync.running ? 'Checking Last.fm…' : 'Refresh from Last.fm'}
-        </button>
-      }
-    >
-      <p className="muted small">
-        People you follow on Last.fm who follow you back show up here by themselves{sync.at ? ` (checked ${new Date(sync.at).toLocaleDateString()})` : ''}. Anyone else you compare with can be added from their comparison.
-      </p>
-      {sync.error && <p className="error small">{sync.error}</p>}
-      {!list.length ? (
-        <p className="empty">{sync.running ? 'Looking for your Last.fm friends…' : 'No friends yet.'}</p>
-      ) : (
-        <ul className="friend-list">
-          {list.map((f) => (
-            <li key={f.name}>
-              <a href={routePath({ name: 'compare', friend: f.name })}>
-                <FriendAvatar f={f} size={34} />
-                <span>{f.name}</span>
-                <span className="muted small">{f.source === 'lastfm' ? 'Last.fm friend' : 'added by you'}</span>
-              </a>
-              {f.source === 'you' && (
-                <button
-                  className="mini-btn"
-                  onClick={() => {
-                    if (confirm(`Remove ${f.name} from your friends?`)) void removeFriend(f.name);
-                  }}
-                >
-                  Remove
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
+  useEffect(() => {
+    if (!friend) navigate({ name: 'friends' });
+  }, [friend]);
+  return friend ? <Versus name={friend} /> : null;
 }
 
 /* ------------------------------------------------------------------ you vs them */
@@ -192,8 +87,8 @@ function Versus({ name }: { name: string }) {
       <div className="page compare">
         <p className="empty">{err.message}</p>
         <div className="row gap center">
-          <a className="btn" href={routePath({ name: 'compare' })}>
-            Compare with someone else
+          <a className="btn" href={routePath({ name: 'friends' })}>
+            Back to friends
           </a>
           {(err as FriendError).kind === 'network' && (
             <button className="btn" onClick={() => setReload(reload + 1)}>
@@ -246,8 +141,8 @@ function Versus({ name }: { name: string }) {
           </button>
           <FriendButton name={them.name} image={them.image} />
           <FullHistoryButton name={name} hist={hist ?? null} running={running} onGet={getFull} onRemoved={() => setHist(null)} />
-          <a className="btn small ghost" href={routePath({ name: 'compare' })}>
-            Someone else
+          <a className="btn small ghost" href={routePath({ name: 'friend', who: them.name })}>
+            {them.name}’s stats
           </a>
         </div>
         <p className="muted small vs-explain">Everything Encore downloads about {them.name} stays on this device and is deleted {KEEP_FOR / 3600_000} hours after you last open this comparison.</p>
