@@ -15,7 +15,7 @@ export function getAppSettings() {
   } catch {
     /* ignore */
   }
-  return { range: exploreRange, compare, milestones, albums: albumPrefs, prefs: getPrefs(), friends: useFriends.getState().list };
+  return { range: exploreRange, compare, milestones, albums: albumPrefs, prefs: getPrefs(), friends: useFriends.getState().all };
 }
 
 /** Apply settings from another device or a backup. */

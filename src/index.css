@@ -4752,3 +4752,35 @@ kbd {
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
+/* header: Friends (phones; computers have the Friends tab) */
+.head-friends {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--soft);
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+.head-friends:hover,
+.head-friends.on {
+  color: var(--text);
+  border-color: var(--text);
+}
+@media (max-width: 720px) {
+  .head-friends {
+    display: inline-flex;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .head-friends-label {
+    display: none;
+  }
+}

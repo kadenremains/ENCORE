@@ -65,6 +65,17 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
             <Logo /> Encore
           </a>
           <div className="row gap">
+            {!demo && (
+              <a className={`head-friends ${route.name === 'friends' || route.name === 'friend' || route.name === 'compare' ? 'on' : ''}`} href="#/friends" title="Friends" aria-label="Friends">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  <circle cx="17" cy="9" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="M16.5 14.2c2.4.2 4 1.7 4.5 4.3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+                <span className="head-friends-label">Friends</span>
+              </a>
+            )}
             <SyncPill />
             <div className="user-menu" ref={menuRef}>
               <button className="user-btn" onClick={() => setMenu(!menu)}>

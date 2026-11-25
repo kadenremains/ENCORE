@@ -18,8 +18,10 @@ export interface Friend {
   name: string; // as Last.fm spells it
   image?: string;
   at: number; // when they became a friend here
-  /** 'lastfm': you follow each other on Last.fm (kept in step by itself); 'you': you added them */
+  /** 'lastfm': your friend on Last.fm (kept in step by itself); 'you': you added them */
   source: 'lastfm' | 'you';
+  /** removed (kept a while so other devices learn about it instead of bringing them back) */
+  gone?: boolean;
 }
 
 const LS = 'sw.friends';
@@ -37,16 +39,21 @@ export function sanitizeFriends(raw: unknown): Friend[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((f): f is Friend => !!f && typeof f.name === 'string' && /^[\w.-]{2,30}$/.test(f.name) && typeof f.at === 'number')
-    .map((f) => ({ name: f.name, at: f.at, source: f.source === 'lastfm' ? ('lastfm' as const) : ('you' as const), ...(typeof f.image === 'string' && /^https:\/\//.test(f.image) ? { image: f.image } : {}) }))
-    .slice(0, MAX);
+    .map((f) => ({ name: f.name, at: f.at, source: f.source === 'lastfm' ? ('lastfm' as const) : ('you' as const), ...(f.gone ? { gone: true } : {}), ...(typeof f.image === 'string' && /^https:\/\//.test(f.image) ? { image: f.image } : {}) }))
+    // removals are remembered for 60 days, then forgotten
+    .filter((f) => !f.gone || Date.now() - f.at < 60 * 86400_000)
+    .slice(0, MAX * 2);
 }
 
-export const useFriends = create<{ list: Friend[] }>(() => ({ list: loadList() }));
+/** `list`: your friends; `all`: plus removals other devices still need to hear about. */
+const visible = (all: Friend[]) => all.filter((f) => !f.gone).slice(0, MAX);
+const initial = loadList();
+export const useFriends = create<{ list: Friend[]; all: Friend[] }>(() => ({ list: visible(initial), all: initial }));
 
-function saveList(list: Friend[], sync = true) {
-  useFriends.setState({ list });
+function saveList(all: Friend[], sync = true) {
+  useFriends.setState({ list: visible(all), all });
   try {
-    localStorage.setItem(LS, JSON.stringify(list));
+    localStorage.setItem(LS, JSON.stringify(all));
   } catch {
     /* private mode */
   }
@@ -59,18 +66,19 @@ export const isFriend = (name: string) => useFriends.getState().list.some((f) =>
 /** Add someone you compared with (only ever when you ask). */
 export function addFriend(f: { name: string; image?: string }) {
   if (isFriend(f.name)) return;
-  saveList([{ name: f.name, image: f.image, at: Date.now(), source: 'you' as const }, ...useFriends.getState().list].slice(0, MAX));
+  const rest = useFriends.getState().all.filter((x) => !same(x.name, f.name));
+  saveList([{ name: f.name, image: f.image, at: Date.now(), source: 'you' as const }, ...rest]);
 }
 
 /** Remove someone you added (Last.fm friends come and go with Last.fm). Their data goes on the usual day timer. */
 export async function removeFriend(name: string) {
-  saveList(useFriends.getState().list.filter((x) => !same(x.name, name) || x.source === 'lastfm'));
+  saveList(useFriends.getState().all.map((x) => (same(x.name, name) && x.source === 'you' ? { ...x, gone: true, at: Date.now() } : x)));
 }
 
 /** A friend's picture changed (seen while comparing): keep the list current, without syncing for it. */
 export function refreshFriendImage(name: string, image?: string) {
-  const list = useFriends.getState().list;
-  const i = list.findIndex((f) => same(f.name, name));
+  const list = useFriends.getState().all;
+  const i = list.findIndex((f) => same(f.name, name) && !f.gone);
   if (i < 0 || list[i].image === image) return;
   const next = list.slice();
   next[i] = { ...next[i], name, image };
@@ -79,7 +87,7 @@ export function refreshFriendImage(name: string, image?: string) {
 
 /* ---------------- your Last.fm friends: people you follow who follow you back ---------------- */
 
-const SYNCED = 'friendsSyncedAt';
+const SYNCED = 'friendsSyncedAt2'; // (2: friends now come straight from Last.fm's list; check again right away)
 export const useFriendSync = create<{ running: boolean; at: number | null; error: string | null }>(() => ({ running: false, at: null, error: null }));
 
 /**
@@ -90,26 +98,17 @@ export async function syncLastfmFriends(me: string, apiKey: string): Promise<voi
   if (useFriendSync.getState().running) return;
   useFriendSync.setState({ running: true, error: null });
   try {
-    const following = await fetchFollowing(me, apiKey);
-    const mutual: { name: string; image?: string }[] = [];
-    let next = 0;
-    const worker = async () => {
-      while (next < following.length) {
-        const f = following[next++];
-        try {
-          const theirs = await fetchFollowing(f.name, apiKey, 10);
-          if (theirs.some((x) => same(x.name, me))) mutual.push(f);
-        } catch {
-          /* private or gone: skip */
-        }
-        await new Promise((r) => setTimeout(r, 150));
-      }
-    };
-    await Promise.all([worker(), worker()]);
-    const cur = useFriends.getState().list;
-    const kept = cur.filter((f) => f.source === 'you' && !mutual.some((m) => same(m.name, f.name)));
-    const fromLastfm = mutual.map((m): Friend => ({ name: m.name, image: m.image, source: 'lastfm', at: cur.find((f) => same(f.name, m.name))?.at ?? Date.now() }));
-    saveList([...fromLastfm.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), ...kept].slice(0, MAX));
+    // Last.fm's own friends list. (Checking each one's list for you as well isn't reliable: Last.fm
+    // often returns nothing for the other side.)
+    const lastfm = await fetchFollowing(me, apiKey);
+    const cur = useFriends.getState().all;
+    const now = Date.now();
+    const fromLastfm = lastfm.map((m): Friend => ({ name: m.name, image: m.image || cur.find((f) => same(f.name, m.name))?.image, source: 'lastfm', at: cur.find((f) => same(f.name, m.name) && !f.gone)?.at ?? now }));
+    // Last.fm friends that are no longer on Last.fm: removed (and other devices told)
+    const dropped = cur.filter((f) => f.source === 'lastfm' && !f.gone && !lastfm.some((m) => same(m.name, f.name))).map((f) => ({ ...f, gone: true, at: now }));
+    const others = cur.filter((f) => !lastfm.some((m) => same(m.name, f.name)) && !(f.source === 'lastfm' && !f.gone));
+    const next = [...fromLastfm.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), ...others, ...dropped];
+    if (JSON.stringify(next) !== JSON.stringify(cur)) saveList(next);
     await setMeta(SYNCED, Date.now());
     useFriendSync.setState({ at: Date.now() });
   } catch (e) {
@@ -128,13 +127,17 @@ export async function maybeSyncLastfmFriends(me: string, apiKey: string) {
 
 /** The list from another device (merged: the newer entry for each name wins). */
 export function applyRemoteFriends(raw: unknown) {
+  const remote = sanitizeFriends(raw);
   const byName = new Map<string, Friend>();
-  for (const f of [...sanitizeFriends(raw), ...useFriends.getState().list]) {
+  for (const f of [...remote, ...useFriends.getState().all]) {
     const k = f.name.toLowerCase();
     const cur = byName.get(k);
-    if (!cur || f.at > cur.at) byName.set(k, f);
+    if (!cur || f.at > cur.at || (f.at === cur.at && f.gone && !cur.gone)) byName.set(k, f);
   }
-  saveList([...byName.values()].sort((a, b) => b.at - a.at).slice(0, MAX), false);
+  const merged = [...byName.values()].sort((a, b) => Number(!!a.gone) - Number(!!b.gone) || (a.source === b.source ? 0 : a.source === 'lastfm' ? -1 : 1) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  const key = (l: Friend[]) => JSON.stringify([...l].sort((a, b) => a.name.localeCompare(b.name)).map((f) => [f.name.toLowerCase(), f.at, !!f.gone]));
+  // this device knew something the other didn't: send the merged list back so both end up the same
+  saveList(merged, key(merged) !== key(remote));
 }
 
 /* ---------------- not keeping other people's data for long ---------------- */
