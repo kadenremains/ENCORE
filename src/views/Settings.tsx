@@ -516,7 +516,6 @@ function StatsTab() {
           </Row>
         </Group>
       )}
-      <Changelog owner />
     </>
   );
 }
@@ -1056,6 +1055,7 @@ function OwnerTab() {
           )}
         </Group>
       )}
+      <Changelog owner />
     </>
   );
 }
