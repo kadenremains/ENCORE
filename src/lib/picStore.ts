@@ -1,5 +1,6 @@
 import { db, type ImageOverride, type StoredPic } from './db';
 import type { Project } from '../editor/model';
+import { blankVersus } from '../editor/versusBlank';
 
 /**
  * Pictures inside wrappeds and custom pictures are kept once each, as plain image data, in the
@@ -136,7 +137,7 @@ export const projectsDb = {
   put: (p: Project) => {
     const save = ++saves;
     newest.set(`projects:${p.id}`, save);
-    return moveIn().then(() => putWithPics('projects', p.id, p, save));
+    return moveIn().then(() => putWithPics('projects', p.id, blankVersus(p), save));
   },
   /**
    * Leaving the app: write it this instant, pictures and all (no time to split them out), then split
@@ -145,6 +146,7 @@ export const projectsDb = {
   putNow(p: Project) {
     const save = ++saves;
     newest.set(`projects:${p.id}`, save);
+    p = blankVersus(p);
     const written = db.projects.put(p);
     void written.then(() => putWithPics('projects', p.id, p, save)).catch(() => {});
     return written;

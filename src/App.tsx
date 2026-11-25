@@ -14,6 +14,7 @@ import { initCloud, setOnSignedIn, setOnSignedOut, useCloud } from './lib/cloud'
 import { lookAccountChecked, useLook } from './lib/look';
 import { LookPicker } from './views/LookPicker';
 import { runMaintenance } from './lib/maintenance';
+import { startFriendCleanup } from './lib/friends';
 import { useEditor } from './editor/editorStore';
 import { usePrefs } from './lib/prefs';
 import { applyAppSettings, getAppSettings } from './lib/appSettings';
@@ -72,6 +73,7 @@ function Main() {
   useEffect(() => {
     // shrink oversized old pictures first so the first sync sends the light versions
     init().then(runMaintenance).catch(() => {}).then(startCloud);
+    startFriendCleanup(); // friends' downloaded data goes a day after you last looked
     startUpdateChecks();
   }, [init]);
   const lib = useApp((s) => s.lib);

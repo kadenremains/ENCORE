@@ -4657,3 +4657,9 @@ kbd {
   font-weight: 600;
   font-size: 12px;
 }
+.modal.versus-reload {
+  max-width: 420px;
+}
+.modal.versus-reload p {
+  margin: 0 0 14px;
+}

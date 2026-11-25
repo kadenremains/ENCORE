@@ -76,6 +76,44 @@ export function applyRemoteFriends(raw: unknown) {
   saveList([...byName.values()].sort((a, b) => b.at - a.at).slice(0, MAX), false);
 }
 
+/* ---------------- not keeping other people's data for long ---------------- */
+
+/** Everything downloaded about someone is deleted this long after you last looked at the comparison. */
+export const KEEP_FOR = 24 * 3600_000;
+const viewedKey = (name: string) => `friendViewed:${name.toLowerCase()}`;
+
+export async function markViewed(name: string) {
+  await setMeta(viewedKey(name), Date.now());
+}
+
+/** Delete friends' data (top lists, full histories) not looked at in the last KEEP_FOR. */
+export async function purgeStaleFriends(): Promise<number> {
+  const names = new Set<string>();
+  for (const k of (await db.meta.toCollection().primaryKeys()) as string[]) {
+    const m = /^friend(?:Top|AllArtists|History|Viewed):([^:]+)/.exec(k);
+    if (m) names.add(m[1]);
+  }
+  for (const u of (await db.friendMonths.orderBy('u').uniqueKeys()) as string[]) names.add(u);
+  let removed = 0;
+  for (const u of names) {
+    if (useDownloads.getState().running[u]) continue;
+    const seen = await getMeta<number>(viewedKey(u));
+    if (seen && Date.now() - seen < KEEP_FOR) continue;
+    await removeHistory(u);
+    await db.meta.delete(viewedKey(u));
+    removed++;
+  }
+  return removed;
+}
+
+let purging: ReturnType<typeof setInterval> | undefined;
+/** On start, then every hour while the app is open. */
+export function startFriendCleanup() {
+  if (purging) return;
+  void purgeStaleFriends().catch(() => {});
+  purging = setInterval(() => void purgeStaleFriends().catch(() => {}), 3600_000);
+}
+
 /* ---------------- profile and quick top lists ---------------- */
 
 export class FriendError extends Error {

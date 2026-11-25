@@ -17,8 +17,9 @@ export const CHANGELOG: Release[] = [
     title: 'Compare',
     notes: [
       { text: 'Compare your listening with anyone on Last.fm: a match score, the artists, songs and albums you share (with both your play counts), what only they play (try these) and what only you play.' },
-      { text: 'Get their full history to compare any date range exactly, see who found each shared artist first, your habits side by side, and how your match changed month by month. It stays on your device; remove it any time.' },
-      { text: 'Make a “You vs. them” wrapped straight from a comparison.' },
+      { text: 'Get their full history to compare any date range exactly, see who found each shared artist first, your habits side by side, and how your match changed month by month.' },
+      { text: 'Nothing about them is kept for long: what Encore downloads stays on your device and is deleted a day after you last open the comparison.' },
+      { text: 'Make a “You vs. them” wrapped straight from a comparison. Only their name is saved with it; opening it loads the comparison fresh (text you rewrite yourself stays).' },
       { text: 'Start from the Overview (“Compare with a friend”, then one tap for people you’ve compared with) or the Compare tab on a computer. Artist, album and song pages show your friends’ plays next to yours.' },
     ],
   },

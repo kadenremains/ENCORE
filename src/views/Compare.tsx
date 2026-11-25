@@ -8,25 +8,25 @@ import { usePrefs, fmtHourPref } from '../lib/prefs';
 import { WEEKDAYS } from '../ui/charts';
 import {
   FriendError,
+  KEEP_FOR,
   cancelDownload,
   downloadHistory,
   fetchFriendInfo,
   forgetFriend,
-  friendLibrary,
   historyState,
-  quickLists,
   rememberFriend,
   removeHistory,
   useDownloads,
   useFriends,
   type HistoryState,
 } from '../lib/friends';
-import { PERIOD_LABEL, compare, nearestPeriod, sideFromLibrary, sideFromTop, type Comparison, type Habits, type Side } from '../lib/compare';
+import { type Comparison, type Habits, type Side } from '../lib/compare';
+import { runComparison, type ComparisonResult } from '../lib/compareRun';
 import { FriendAvatar } from './FriendStrip';
-import { makeVersusProject } from '../editor/versus';
+import { fillVersus, makeVersusProject } from '../editor/versus';
+import { openVersusFilled } from '../editor/versusOpen';
 import { projectsDb } from '../lib/picStore';
 import { localChanged } from '../lib/changes';
-import type { UserInfo } from '../lib/types';
 
 /** Compare: you and a friend, side by side. #/compare picks someone; #/compare/<name> compares. */
 export function Compare({ friend }: { friend?: string }) {
@@ -116,64 +116,40 @@ function PickFriend() {
 /* ------------------------------------------------------------------ you vs them */
 
 function Versus({ name }: { name: string }) {
-  const { lib, range, label } = useRangeStats();
-  const user = useApp((s) => s.user);
-  const username = useApp((s) => s.username);
+  const { lib, spec, label } = useRangeStats();
   const apiKey = useApp((s) => s.apiKey);
   const fixes = useApp((s) => s.albumPrefs.fixes);
   const running = useDownloads((s) => s.running[name.toLowerCase()]);
-  const [info, setInfo] = useState<UserInfo | null>(null);
   const [hist, setHist] = useState<HistoryState | null | undefined>(undefined);
-  const [result, setResult] = useState<{ cmp: Comparison; me: Side; them: Side; full: boolean; note: string } | null>(null);
+  const [result, setResult] = useState<ComparisonResult | null>(null);
   const [err, setErr] = useState<FriendError | Error | null>(null);
   const [reload, setReload] = useState(0);
 
-  // who they are (and remember them for next time)
   useEffect(() => {
     let live = true;
-    fetchFriendInfo(name, apiKey)
-      .then((i) => {
-        if (live) setInfo(i);
-      })
-      .catch((e) => live && setErr(e));
     void historyState(name).then((h) => live && setHist(h ?? null));
     return () => {
       live = false;
     };
-  }, [name, apiKey, reload]);
+  }, [name, reload]);
 
-  // the comparison: their full history if you downloaded it (any range), else Last.fm's top lists
+  // their full history if you downloaded it (any range), else Last.fm's top lists
   useEffect(() => {
     if (hist === undefined || running) return;
     let live = true;
-    void (async () => {
-      try {
-        const myName = user?.name ?? username;
-        if (hist) {
-          const theirLib = await friendLibrary(name, fixes);
-          if (!theirLib) return setHist(null);
-          const me = sideFromLibrary(lib, range, myName, user?.image);
-          const them = sideFromLibrary(theirLib, range, info?.name ?? name, info?.image);
-          if (live) setResult({ cmp: compare(me, them), me, them, full: true, note: label });
-          rememberFriend({ name: info?.name ?? name, image: info?.image });
-        } else {
-          const p = nearestPeriod(range);
-          const q = await quickLists(name, p.period, apiKey);
-          const me = sideFromLibrary(lib, p.window, myName, user?.image);
-          const them = sideFromTop(info?.name ?? name, q, info?.image);
-          if (live) setResult({ cmp: compare(me, them), me, them, full: false, note: p.exact ? PERIOD_LABEL[p.period] : `${PERIOD_LABEL[p.period]} (Last.fm’s nearest to ${label})` });
-          // remembered once a comparison works (not for names that don't exist or are private)
-          rememberFriend({ name: info?.name ?? name, image: info?.image });
-        }
-        if (live) setErr(null);
-      } catch (e) {
-        if (live) setErr(e as Error);
-      }
-    })();
+    runComparison(name, spec)
+      .then((r) => {
+        if (!live) return;
+        setResult(r);
+        setErr(null);
+        // remembered once a comparison works (not for names that don't exist or are private)
+        rememberFriend({ name: r.info.name, image: r.info.image });
+      })
+      .catch((e) => live && setErr(e as Error));
     return () => {
       live = false;
     };
-  }, [hist, running, lib, range, label, name, apiKey, fixes, info, user, username]);
+  }, [hist, running, lib, spec, name, apiKey, fixes, reload]);
 
   const getFull = async () => {
     try {
@@ -212,6 +188,7 @@ function Versus({ name }: { name: string }) {
     );
   }
   const { cmp, me, them, full, note } = result;
+
   return (
     <div className="page compare">
       <section className="vs-head grain">
@@ -230,9 +207,11 @@ function Versus({ name }: { name: string }) {
           <button
             className="btn primary small"
             onClick={async () => {
-              const p = makeVersusProject(cmp, me, them, note);
+              // only who it compares you with is saved; opening it loads the comparison again
+              const p = makeVersusProject(me.name, them.name);
               await projectsDb.put(p);
               localChanged();
+              openVersusFilled(p.id, fillVersus(p, cmp, me, them, note));
               navigate({ name: 'edit', id: p.id });
             }}
           >
@@ -243,6 +222,7 @@ function Versus({ name }: { name: string }) {
             Someone else
           </a>
         </div>
+        <p className="muted small vs-explain">Everything Encore downloads about {them.name} stays on this device and is deleted {KEEP_FOR / 3600_000} hours after you last open this comparison.</p>
         <p className="muted small vs-explain">The score is how much your listening overlaps: every artist you both play adds the smaller of your two shares of it. 100 is identical listening, 0 nothing in common.</p>
       </section>
 

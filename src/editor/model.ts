@@ -136,6 +136,8 @@ export type CardStyle = 'none' | 'glass' | 'solid' | 'outline';
 export interface BlockBase {
   id: string;
   name?: string;
+  /** in a "You vs." wrapped: which part of the comparison this block shows (filled in when it's loaded) */
+  vs?: string;
   x: number;
   y: number;
   w: number;
@@ -332,6 +334,8 @@ export interface Project {
   range: RangeSpec;
   slides: Slide[];
   avgTrackMinutes: number;
+  /** a "You vs." wrapped: only who it compares you with is saved; the comparison is loaded on opening */
+  versus?: { friend: string };
 }
 
 /* ---------------- block factories ---------------- */

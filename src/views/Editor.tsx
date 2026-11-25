@@ -9,6 +9,10 @@ import { deliverFiles, renderNodeToBlob, slugify } from '../lib/export';
 import { rangeLabel, resolveRange } from '../lib/range';
 import { navigate } from '../router';
 import { projectsDb } from '../lib/picStore';
+import { takeVersusFilled } from '../editor/versusOpen';
+import { versusFilled } from '../editor/versusBlank';
+import { fillVersus } from '../editor/versus';
+import { runComparison } from '../lib/compareRun';
 
 export function Editor({ id }: { id: string }) {
   const lib = useApp((s) => s.lib);
@@ -20,7 +24,7 @@ export function Editor({ id }: { id: string }) {
 
   useEffect(() => {
     if (!id) return;
-    projectsDb.get(id).then((p) => (p ? load(p) : navigate({ name: 'create' })));
+    projectsDb.get(id).then((p) => (p ? load(takeVersusFilled(id) ?? p) : navigate({ name: 'create' })));
   }, [id, load]);
 
   // on phones, jump to the edit tab when something is double-tapped
@@ -98,6 +102,7 @@ export function Editor({ id }: { id: string }) {
       </nav>
 
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
+      {project.versus && !versusFilled(project) && <VersusReload key={project.id} friend={project.versus.friend} />}
     </div>
   );
 }
@@ -323,6 +328,47 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
           <SlideCanvas ref={nodeRef} lib={lib} project={project} slide={project.slides[renderIdx]} username={username} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A "You vs." wrapped saves only who it compares you with. Opening it asks to load the comparison
+ * (fresh, for the wrapped's date range); "Not now" leaves the comparison parts empty.
+ */
+function VersusReload({ friend }: { friend: string }) {
+  const [state, setState] = useState<{ busy?: boolean; err?: string; dismissed?: boolean }>({});
+  if (state.dismissed) return null;
+  const loadIt = async () => {
+    const p = useEditor.getState().project;
+    if (!p) return;
+    setState({ busy: true });
+    try {
+      const r = await runComparison(friend, p.range);
+      const cur = useEditor.getState().project;
+      // straight into the editor, not as an edit: nothing to undo, and nothing of theirs is saved
+      if (cur?.id === p.id) useEditor.setState({ project: fillVersus(cur, r.cmp, r.me, r.them, r.note) });
+    } catch (e) {
+      setState({ err: (e as Error).message });
+    }
+  };
+  return (
+    <div className="modal-backdrop">
+      <div className="modal versus-reload">
+        <div className="modal-head">
+          <h3>You vs {friend}</h3>
+        </div>
+        <p className="small">Only {friend}’s name is saved with this wrapped, never their listening, so the comparison is loaded fresh each time you open it.</p>
+        {state.err && <p className="error small">{state.err}</p>}
+        <div className="row gap wrap">
+          <button className="btn primary" disabled={state.busy} onClick={() => void loadIt()}>
+            {state.busy ? 'Comparing…' : 'Load the comparison'}
+          </button>
+          <button className="btn ghost" disabled={state.busy} onClick={() => setState({ dismissed: true })}>
+            Not now
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { localChanged } from '../lib/changes';
 import { makeBlock, uid, type Block, type BlockType, type Project, type Slide } from './model';
 import { projectsDb } from '../lib/picStore';
+import { isVersusData } from './versusBlank';
 
 interface EditorState {
   project: Project | null;
@@ -98,7 +99,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().update((p) => {
       for (const s of p.slides) {
         const i = s.blocks.findIndex((b) => b.id === id);
-        if (i >= 0) s.blocks[i] = { ...s.blocks[i], ...patch } as Block;
+        if (i >= 0) {
+          const next = { ...s.blocks[i], ...patch } as Block;
+          // typing over a "You vs." number makes it your own text: kept, not refilled
+          if ('text' in patch && next.vs && isVersusData(next)) delete next.vs;
+          s.blocks[i] = next;
+        }
       }
     }, mergeKey ?? `block:${id}:${Object.keys(patch).join(',')}`),
 
