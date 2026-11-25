@@ -5,7 +5,7 @@ import { Stage } from '../editor/Stage';
 import { Inspector } from '../editor/Inspector';
 import { BLOCK_LIBRARY, type Block, type BlockType } from '../editor/model';
 import { SlideCanvas } from '../render/SlideCanvas';
-import { deliverFiles, renderNodeToBlob, slugify } from '../lib/export';
+import { deliverFiles, exportRatio, renderNodeToBlob, slugify } from '../lib/export';
 import { rangeLabel, resolveRange } from '../lib/range';
 import { navigate } from '../router';
 import { projectsDb } from '../lib/picStore';
@@ -291,11 +291,15 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
             <div className="field">
               <span className="field-label">Quality</span>
               <div className="segmented">
-                {[1, 2, 3].map((r) => (
-                  <button key={r} className={`quality-opt ${ratio === r ? 'on' : ''}`} onClick={() => setRatio(r)}>
-                    {r}×<small>{project.format.w * r}×{project.format.h * r}</small>
-                  </button>
-                ))}
+                {[1, 2, 3].map((r) => {
+                  // (as big as it can be where that's past what Safari can draw)
+                  const used = exportRatio(project.format.w, project.format.h, r);
+                  return (
+                    <button key={r} className={`quality-opt ${ratio === r ? 'on' : ''}`} onClick={() => setRatio(r)}>
+                      {r}×<small>{Math.floor(project.format.w * used)}×{Math.floor(project.format.h * used)}</small>
+                    </button>
+                  );
+                })}
               </div>
               <span className="field-hint">2× is crisp on any phone. 3× is huge and slower.</span>
             </div>

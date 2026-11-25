@@ -68,7 +68,6 @@ export const SlideCanvas = forwardRef<HTMLDivElement, Props>(function SlideCanva
   );
 });
 
-
 /** Thin inset frame with corner brackets, in the style of archival review cards. */
 function Frame({ w, h, color }: { w: number; h: number; color: string }) {
   const inset = Math.round(Math.min(w, h) * 0.024);

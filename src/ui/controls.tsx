@@ -111,6 +111,38 @@ export function ColorInput({ value, onChange, allowClear, placeholder }: { value
   );
 }
 
+/**
+ * A number box you can type in freely: a half-typed or out-of-range number isn't applied (so
+ * clearing the box to type a new width doesn't squash anything to the minimum), and leaving the box
+ * puts back the last value that was. `live: false` applies it only when you leave the box / press Enter.
+ */
+export function NumberInput({ value, onChange, min = -Infinity, max = Infinity, live = true }: { value: number; onChange: (v: number) => void; min?: number; max?: number; live?: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (text: string) => {
+    const n = Math.round(Number(text));
+    if (text.trim() && Number.isFinite(n) && n >= min && n <= max && n !== value) onChange(n);
+  };
+  return (
+    <input
+      className="text-input"
+      type="number"
+      inputMode="numeric"
+      min={Number.isFinite(min) ? min : undefined}
+      max={Number.isFinite(max) ? max : undefined}
+      value={draft ?? value}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        if (live) commit(e.target.value);
+      }}
+      onBlur={() => {
+        if (draft !== null && !live) commit(draft);
+        setDraft(null);
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+}
+
 export function TextInput({ value, onChange, placeholder, multiline }: { value: string; onChange: (v: string) => void; placeholder?: string; multiline?: boolean }) {
   return multiline ? (
     <textarea className="text-input" rows={3} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />

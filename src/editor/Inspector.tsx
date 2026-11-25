@@ -20,7 +20,7 @@ import {
   type Theme,
   type TopListBlock,
 } from './model';
-import { ColorInput, Field, RangePicker, Section, Segmented, Select, Slider, TextInput, Toggle, UploadButton } from '../ui/controls';
+import { ColorInput, Field, NumberInput, RangePicker, Section, Segmented, Select, Slider, TextInput, Toggle, UploadButton } from '../ui/controls';
 import { blockRange, imageBlockEntity, TOKENS, defaultStatLabel, type RenderCtx } from '../render/blocks';
 import { slideTheme, backgroundCss, bgPlacement, useBackgroundSrc } from '../render/SlideCanvas';
 import { ImageEditor, type EntityRef } from '../ui/ImageEditor';
@@ -39,6 +39,9 @@ const SHAPE_OPTS: { value: ImageShape; label: string }[] = [
   { value: 'rounded', label: '▢' },
   { value: 'circle', label: '●' },
 ];
+
+/** the largest custom wrapped size, per side (bigger ones are too much for phones to draw) */
+const MAX_SIDE = 4000;
 
 const TYPE_LABEL: Record<Block['type'], string> = {
   text: 'Text',
@@ -162,16 +165,16 @@ function BlockInspector({ block, project }: { block: Block; project: Project }) 
       <Section title="Position & size" defaultOpen={false}>
         <div className="grid2">
           <Field label="X">
-            <input className="text-input" type="number" value={block.x} onChange={(e) => set({ x: Number(e.target.value) })} />
+            <NumberInput value={block.x} onChange={(x) => set({ x })} />
           </Field>
           <Field label="Y">
-            <input className="text-input" type="number" value={block.y} onChange={(e) => set({ y: Number(e.target.value) })} />
+            <NumberInput value={block.y} onChange={(y) => set({ y })} />
           </Field>
           <Field label="Width">
-            <input className="text-input" type="number" value={block.w} onChange={(e) => set({ w: Math.max(10, Number(e.target.value)) })} />
+            <NumberInput value={block.w} min={10} onChange={(w) => set({ w })} />
           </Field>
           <Field label="Height">
-            <input className="text-input" type="number" value={block.h} onChange={(e) => set({ h: Math.max(10, Number(e.target.value)) })} />
+            <NumberInput value={block.h} min={10} onChange={(h) => set({ h })} />
           </Field>
         </div>
         <div className="row gap wrap">
@@ -770,10 +773,11 @@ function ProjectInspector({ project }: { project: Project }) {
         </div>
         <div className="grid2">
           <Field label="Width">
-            <input className="text-input" type="number" value={project.format.w} onChange={(e) => changeFormat(Math.max(200, Number(e.target.value)), project.format.h, 'custom', 'Custom')} />
+            {/* applied when you're done typing: every block is rescaled to the new size */}
+            <NumberInput value={project.format.w} min={200} max={MAX_SIDE} live={false} onChange={(w) => changeFormat(w, project.format.h, 'custom', 'Custom')} />
           </Field>
           <Field label="Height">
-            <input className="text-input" type="number" value={project.format.h} onChange={(e) => changeFormat(project.format.w, Math.max(200, Number(e.target.value)), 'custom', 'Custom')} />
+            <NumberInput value={project.format.h} min={200} max={MAX_SIDE} live={false} onChange={(h) => changeFormat(project.format.w, h, 'custom', 'Custom')} />
           </Field>
         </div>
       </Section>

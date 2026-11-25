@@ -82,12 +82,19 @@ function fingerprint(canvas: HTMLCanvasElement) {
   return sum;
 }
 
+/** Safari (iPhone included) can't make a canvas bigger than this many pixels: it comes out empty. */
+const MAX_PIXELS = 16_777_216;
+
+/** The sharpness actually used: as asked, or less if that would be too big for Safari. */
+export const exportRatio = (w: number, h: number, asked: number) => Math.min(asked, Math.floor(Math.sqrt(MAX_PIXELS / (w * h)) * 100) / 100);
+
 export async function renderNodeToBlob(node: HTMLElement, w: number, h: number, pixelRatio: number): Promise<Blob> {
   await document.fonts.ready;
   await waitForImages(node);
-  const undo = await downsizeImages(node, pixelRatio);
+  const ratio = exportRatio(w, h, pixelRatio);
+  const undo = await downsizeImages(node, ratio);
   try {
-    return await render(node, w, h, pixelRatio);
+    return await render(node, w, h, ratio);
   } finally {
     undo();
   }

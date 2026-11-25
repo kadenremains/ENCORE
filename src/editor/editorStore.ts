@@ -58,7 +58,20 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const clone = <T,>(x: T): T => structuredClone(x);
+/**
+ * A deep copy of project data (plain objects, arrays, numbers, strings). Strings are shared rather
+ * than copied: an uploaded picture is megabytes of text, and every drag frame and undo step copies
+ * the project. (structuredClone copied every picture each time.)
+ */
+function clone<T>(x: T): T {
+  if (Array.isArray(x)) return x.map(clone) as T;
+  if (x && typeof x === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x)) out[k] = clone(v);
+    return out as T;
+  }
+  return x;
+}
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
