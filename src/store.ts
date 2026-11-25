@@ -5,7 +5,6 @@ import { scrobbleStore } from './lib/scrobbleStore';
 import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
-import { generateDemo } from './lib/demo';
 import type { CompareMode } from './lib/range';
 import { consumeAuthRedirect } from './lib/cloud';
 import { bumpSettings } from './lib/changes';
@@ -345,6 +344,8 @@ export const useApp = create<AppState>((set, get) => ({
     clearSignedOut(set);
     await scrobbleStore.clear();
     await db.meta.clear();
+    // the demo's catalog only downloads when someone opens the demo
+    const { generateDemo } = await import('./lib/demo');
     const rows = generateDemo();
     const user: UserInfo = { name: 'demo', playcount: rows.length, registered: rows[0].ts };
     await setMeta('user', user);

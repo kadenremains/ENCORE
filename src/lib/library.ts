@@ -114,8 +114,19 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
   // if Last.fm doesn't know the album, your scrobbles decide. A second song played later
   // automatically turns it back into an album.
   const albumSongs = new Map<string, { songs: Set<string>; name: string; artist: string; track: string; plays: number }>();
+  // the same artist / song / album comes up again and again: work it out once per combination
+  const seenCombo = new Map<string, Map<string, Map<string, { plays: number }>>>();
   for (const r of rows) {
     if (!r.al) continue;
+    let byTrack = seenCombo.get(r.ar);
+    if (!byTrack) seenCombo.set(r.ar, (byTrack = new Map()));
+    let byAlbum = byTrack.get(r.tr);
+    if (!byAlbum) byTrack.set(r.tr, (byAlbum = new Map()));
+    const known = byAlbum.get(r.al);
+    if (known) {
+      known.plays++;
+      continue;
+    }
     const ak = r.ar.toLowerCase();
     const aa = albumArtistOf.get(`${r.al.toLowerCase()}\u0000${ak}`) ?? r.ar;
     const key = albumKey(aa, r.al);
@@ -123,6 +134,7 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
     if (!m) albumSongs.set(key, (m = { songs: new Set(), name: r.al, artist: aa, track: r.tr, plays: 0 }));
     m.songs.add(ak + '\u0000' + r.tr.toLowerCase());
     m.plays++;
+    byAlbum.set(r.al, m);
   }
   const counts = opts.albumTrackCounts ?? {};
   const hideSingles = opts.hideSingles !== false;
@@ -160,13 +172,62 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
   const tFirst: number[] = [];
   const alFirst: number[] = [];
 
+  // Local day / hour / weekday only change on a quarter hour (every time zone and clock change is
+  // a multiple of 15 minutes off UTC), and plays are in time order: work them out once per quarter.
+  let block = NaN;
+  let bDay = 0;
+  let bHour = 0;
+  let bWeekday = 0;
+  const bigImg = new Map<string, string>();
+  const fixImg = (u: string) => {
+    let v = bigImg.get(u);
+    if (v === undefined) bigImg.set(u, (v = fixLastfmImg(u)));
+    return v;
+  };
+  // what each artist / song / album combination resolves to, worked out the first time it's played
+  type Resolved = { ai: number; ali: number; ti: number; singleKey?: string };
+  const resolved = new Map<string, Map<string, Map<string, Resolved>>>();
+
   for (let i = 0; i < n; i++) {
     const r = rows[i];
     ts[i] = r.ts;
-    const d = new Date(r.ts * 1000);
-    day[i] = Math.floor((r.ts * 1000 - d.getTimezoneOffset() * 60000) / 86400000);
-    hour[i] = d.getHours();
-    weekday[i] = (d.getDay() + 6) % 7;
+    const q = Math.floor(r.ts / 900);
+    if (q !== block) {
+      block = q;
+      const d = new Date(q * 900_000);
+      bDay = Math.floor((q * 900_000 - d.getTimezoneOffset() * 60000) / 86400000);
+      bHour = d.getHours();
+      bWeekday = (d.getDay() + 6) % 7;
+    }
+    day[i] = bDay;
+    hour[i] = bHour;
+    weekday[i] = bWeekday;
+
+    let byTrack = resolved.get(r.ar);
+    if (!byTrack) resolved.set(r.ar, (byTrack = new Map()));
+    let byAlbum = byTrack.get(r.tr);
+    if (!byAlbum) byTrack.set(r.tr, (byAlbum = new Map()));
+    const known = byAlbum.get(r.al);
+    if (known) {
+      // played before: only the bits that follow the latest play
+      const { ai, ali, ti, singleKey } = known;
+      artists[ai].name = r.ar; // keep most recent casing
+      if (aFirst[ai] === Infinity) aFirst[ai] = r.ts;
+      if (ali >= 0) {
+        albums[ali].name = r.al;
+        if (r.img) albums[ali].img = fixImg(r.img);
+        tracks[ti].album = ali;
+      }
+      tracks[ti].name = r.tr;
+      if (singleKey) {
+        if (tracks[ti].album < 0) tracks[ti].single = singleKey;
+        if (r.img) tracks[ti].img = fixImg(r.img);
+      } else if (ali >= 0) tracks[ti].single = undefined;
+      artist[i] = ai;
+      album[i] = ali;
+      track[i] = ti;
+      continue;
+    }
 
     const ak = r.ar.toLowerCase();
     let ai = aMap.get(ak);
@@ -208,7 +269,7 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
         albums.push({ name: r.al, artist: aai });
         alFirst.push(r.ts);
       } else albums[x].name = r.al;
-      if (r.img) albums[x].img = fixLastfmImg(r.img);
+      if (r.img) albums[x].img = fixImg(r.img);
       ali = x;
     }
     album[i] = ali;
@@ -226,9 +287,10 @@ export function buildLibrary(rows: StoredScrobble[], opts: BuildOptions = {}): L
     }
     if (singleKey) {
       if (tracks[ti].album < 0) tracks[ti].single = singleKey;
-      if (r.img) tracks[ti].img = fixLastfmImg(r.img); // keep the single's cover for the song
+      if (r.img) tracks[ti].img = fixImg(r.img); // keep the single's cover for the song
     } else if (ali >= 0) tracks[ti].single = undefined;
     track[i] = ti;
+    byAlbum.set(r.al, { ai, ali, ti, singleKey });
   }
 
   return {

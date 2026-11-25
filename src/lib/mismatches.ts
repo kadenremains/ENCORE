@@ -231,17 +231,6 @@ interface Acc {
   first: number;
   last: number;
 }
-function bump(m: Map<string, Acc>, key: string, name: string, ts: number) {
-  const x = m.get(key);
-  if (!x) m.set(key, { name, plays: 1, first: ts, last: ts });
-  else {
-    x.plays++;
-    x.name = name; // most recent spelling
-    if (ts < x.first) x.first = ts;
-    if (ts > x.last) x.last = ts;
-  }
-}
-
 function hash(s: string) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
@@ -290,16 +279,61 @@ export function findMismatches(rows: StoredScrobble[]): Mismatch[] {
   const artists = new Map<string, Acc>();
   const albums = new Map<string, Acc>(); // artist \0 album
   const songs = new Map<string, { name: string; artist: string; albums: Map<string, Acc> }>(); // artist \0 song
-  for (const r of rows) {
-    const ak = r.ar.toLowerCase();
-    bump(artists, ak, r.ar, r.ts);
-    const alk = r.al.toLowerCase();
-    if (r.al) bump(albums, `${ak}\0${alk}`, r.al, r.ts);
-    const sk = `${ak}\0${r.tr.toLowerCase()}`;
-    let s = songs.get(sk);
-    if (!s) songs.set(sk, (s = { name: r.tr, artist: r.ar, albums: new Map() }));
-    else s.name = r.tr;
-    bump(s.albums, alk, r.al, r.ts);
+
+  // Count each artist / song / album combination first (the same few come up over and over), then
+  // do the name work once per combination. Entries are created in the order they were first played
+  // and named after the latest play, exactly as going play by play would.
+  type Combo = { ar: string; tr: string; al: string; plays: number; first: number; last: number; lastAt: number };
+  const combos: Combo[] = [];
+  const seen = new Map<string, Map<string, Map<string, Combo>>>();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    let byTrack = seen.get(r.ar);
+    if (!byTrack) seen.set(r.ar, (byTrack = new Map()));
+    let byAlbum = byTrack.get(r.tr);
+    if (!byAlbum) byTrack.set(r.tr, (byAlbum = new Map()));
+    const c = byAlbum.get(r.al);
+    if (c) {
+      c.plays++;
+      if (r.ts < c.first) c.first = r.ts;
+      if (r.ts > c.last) c.last = r.ts;
+      c.lastAt = i;
+    } else {
+      const nc = { ar: r.ar, tr: r.tr, al: r.al, plays: 1, first: r.ts, last: r.ts, lastAt: i };
+      byAlbum.set(r.al, nc);
+      combos.push(nc);
+    }
+  }
+  const keys = combos.map((c) => {
+    const ak = c.ar.toLowerCase();
+    const alk = c.al.toLowerCase();
+    return { ak, alk, albumKey: `${ak}\0${alk}`, sk: `${ak}\0${c.tr.toLowerCase()}` };
+  });
+  const fresh = (name: string): Acc => ({ name, plays: 0, first: Infinity, last: -Infinity });
+  // in order of first play: create the entries (their order, and a song's first artist spelling)
+  combos.forEach((c, i) => {
+    const k = keys[i];
+    if (!artists.has(k.ak)) artists.set(k.ak, fresh(c.ar));
+    if (c.al && !albums.has(k.albumKey)) albums.set(k.albumKey, fresh(c.al));
+    let s = songs.get(k.sk);
+    if (!s) songs.set(k.sk, (s = { name: c.tr, artist: c.ar, albums: new Map() }));
+    if (!s.albums.has(k.alk)) s.albums.set(k.alk, fresh(c.al));
+  });
+  // in order of latest play: add up, and keep the most recent spelling
+  const add = (x: Acc, c: Combo, name: string) => {
+    x.plays += c.plays;
+    x.name = name;
+    if (c.first < x.first) x.first = c.first;
+    if (c.last > x.last) x.last = c.last;
+  };
+  for (const i of combos.map((_, i) => i).sort((a, b) => combos[a].lastAt - combos[b].lastAt)) {
+    const c = combos[i];
+    const k = keys[i];
+    add(artists.get(k.ak)!, c, c.ar);
+    if (c.al) add(albums.get(k.albumKey)!, c, c.al);
+    const s = songs.get(k.sk)!;
+    s.name = c.tr;
+    add(s.albums.get(k.alk)!, c, c.al);
   }
   const artistName = (ak: string) => artists.get(ak)?.name ?? ak;
   const out: Mismatch[] = [];
