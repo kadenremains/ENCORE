@@ -12,6 +12,17 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '3.0',
+    date: '2026-11-25',
+    title: 'Compare',
+    notes: [
+      { text: 'Compare your listening with anyone on Last.fm: a match score, the artists, songs and albums you share (with both your play counts), what only they play (try these) and what only you play.' },
+      { text: 'Get their full history to compare any date range exactly, see who found each shared artist first, your habits side by side, and how your match changed month by month. It stays on your device; remove it any time.' },
+      { text: 'Make a “You vs. them” wrapped straight from a comparison.' },
+      { text: 'Start from the Overview (“Compare with a friend”, then one tap for people you’ve compared with) or the Compare tab on a computer. Artist, album and song pages show your friends’ plays next to yours.' },
+    ],
+  },
+  {
     version: '2.9.1',
     date: '2026-11-25',
     title: 'Pictures stored once',

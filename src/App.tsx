@@ -23,6 +23,7 @@ import { applyUpdate, startUpdateChecks, useUpdate } from './lib/updates';
 const Editor = lazy(() => import('./views/Editor').then((m) => ({ default: m.Editor })));
 const Create = lazy(() => import('./views/Create').then((m) => ({ default: m.Create })));
 const Settings = lazy(() => import('./views/Settings').then((m) => ({ default: m.Settings })));
+const Compare = lazy(() => import('./views/Compare').then((m) => ({ default: m.Compare })));
 const loading = (
   <div className="center-screen">
     <span className="spinner big" />
@@ -131,6 +132,13 @@ function Main() {
       page = (
         <Suspense fallback={loading}>
           <Create />
+        </Suspense>
+      );
+      break;
+    case 'compare':
+      page = (
+        <Suspense fallback={loading}>
+          <Compare key={route.friend ?? ''} friend={route.friend} />
         </Suspense>
       );
       break;

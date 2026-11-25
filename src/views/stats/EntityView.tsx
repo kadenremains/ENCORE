@@ -10,6 +10,7 @@ import { ImageEditor } from '../../ui/ImageEditor';
 import { SingleNote } from './Singles';
 import { MismatchNote } from '../Cleanup';
 import { PlaysList } from './History';
+import { VsFriends } from '../FriendStrip';
 import { useApp } from '../../store';
 import { albumKey } from '../../lib/library';
 
@@ -155,6 +156,8 @@ export function EntityView({ kind, title, artist }: { kind: EntityKind; title: s
           </Panel>
         </>
       )}
+
+      <VsFriends kind={kind} name={name} artist={artistName} mine={at.plays} />
 
       {er.plays > 0 && (
         <Panel title="Plays" right={<span className="muted small">{fmtNum(er.plays)} in {label}</span>}>

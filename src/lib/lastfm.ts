@@ -188,6 +188,60 @@ export async function syncScrobbles(user: string, apiKey: string, onProgress: (p
   return done;
 }
 
+/* ---------------- other people's profiles (Compare) ---------------- */
+
+export type TopPeriod = '7day' | '1month' | '3month' | '6month' | '12month' | 'overall';
+export interface TopEntry {
+  name: string;
+  artist: string; // '' for artists
+  plays: number;
+}
+
+/** Someone's top artists / albums / songs for one of Last.fm's fixed periods (up to 1,000). */
+export async function fetchTop(user: string, kind: 'artist' | 'album' | 'track', period: TopPeriod, apiKey: string): Promise<TopEntry[]> {
+  const method = kind === 'artist' ? 'user.gettopartists' : kind === 'album' ? 'user.gettopalbums' : 'user.gettoptracks';
+  const r = await call<Record<string, Record<string, unknown>>>({ method, user, period, limit: 1000 }, apiKey);
+  const box = r[kind === 'artist' ? 'topartists' : kind === 'album' ? 'topalbums' : 'toptracks'] ?? {};
+  const raw = box[kind];
+  const list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as { name?: string; playcount?: string; artist?: { name?: string } }[];
+  return list.map((x) => ({ name: x.name ?? '', artist: kind === 'artist' ? '' : (x.artist?.name ?? ''), plays: Number(x.playcount) || 0 })).filter((x) => x.name && x.plays > 0);
+}
+
+/**
+ * Someone's scrobbles from `from` on (all of them for 0), page by page. Hands each page to `onPage`
+ * as it arrives; stops early when `signal.cancelled` is set.
+ */
+export async function fetchHistory(
+  user: string,
+  apiKey: string,
+  from: number,
+  onPage: (rows: StoredScrobble[], done: number, total: number) => Promise<void>,
+  signal?: { cancelled: boolean },
+): Promise<void> {
+  const to = Math.floor(Date.now() / 1000);
+  const base: Record<string, string | number> = { method: 'user.getrecenttracks', user, limit: 200, to };
+  if (from) base.from = from;
+  const first = await call<RecentResponse>({ ...base, page: 1 }, apiKey);
+  const totalPages = Number(first.recenttracks['@attr']?.totalPages) || 0;
+  const total = Number(first.recenttracks['@attr']?.total) || 0;
+  let done = 0;
+  const take = async (rows: StoredScrobble[]) => {
+    done += rows.length;
+    await onPage(rows, done, total);
+  };
+  await take(parseTracks(first));
+  let next = 2;
+  const worker = async () => {
+    while (next <= totalPages) {
+      if (signal?.cancelled) return;
+      const page = next++;
+      await take(parseTracks(await call<RecentResponse>({ ...base, page }, apiKey)));
+      await sleep(150);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, Math.max(0, totalPages - 1)) }, worker));
+}
+
 /** Albums as Last.fm groups them (by album artist), for crediting albums correctly. */
 export async function fetchAlbumArtists(user: string, apiKey: string): Promise<[string, string, number][]> {
   const out: [string, string, number][] = [];

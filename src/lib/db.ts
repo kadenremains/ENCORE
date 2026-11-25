@@ -50,6 +50,8 @@ class WrappedDB extends Dexie {
   scrobbles!: Table<StoredScrobble, number>;
   months!: Table<MonthChunk, number>;
   pics!: Table<StoredPic, string>;
+  /** friends' downloaded histories (Compare), packed like yours; u = their lowercase username */
+  friendMonths!: Table<MonthChunk & { u: string }, [string, number]>;
   overrides!: Table<ImageOverride, string>;
   imgcache!: Table<ImageCacheEntry, string>;
   projects!: Table<Project, string>;
@@ -66,6 +68,7 @@ class WrappedDB extends Dexie {
     });
     this.version(2).stores({ months: 'k' });
     this.version(3).stores({ pics: 'id' });
+    this.version(4).stores({ friendMonths: '[u+k], u' });
   }
 }
 

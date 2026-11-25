@@ -25,10 +25,12 @@ const TABS: { label: string; short: string; route: Route; match: (r: Route) => b
   { label: 'Songs', short: 'Songs', route: { name: 'top', kind: 'track' }, match: (r) => (r.name === 'top' || r.name === 'entity') && r.kind === 'track', icon: '♪' },
   { label: 'History', short: 'History', route: { name: 'history', view: 'scrobbles' }, match: (r) => r.name === 'history', icon: '▤' },
   { label: 'Records', short: 'Records', route: { name: 'records' }, match: (r) => r.name === 'records', icon: '★' },
+  { label: 'Compare', short: 'Compare', route: { name: 'compare' }, match: (r) => r.name === 'compare', icon: '⇄' },
   { label: 'Create', short: 'Create', route: { name: 'create' }, match: (r) => r.name === 'create', icon: '✦' },
 ];
 
-const MOBILE_TABS = [0, 1, 4, 5, 6];
+// Compare (6) is reached from Overview on phones: the bottom bar stays at five
+const MOBILE_TABS = [0, 1, 4, 5, 7];
 
 export function Shell({ route, children, showRange = true }: { route: Route; children: ReactNode; showRange?: boolean }) {
   const { user, username, demo, disconnect, exploreRange, setExploreRange, compare, setCompare } = useApp();

@@ -11,6 +11,7 @@ export type Route =
   | { name: 'entity'; kind: EntityKind; artist: string; title: string }
   | { name: 'history'; view: 'scrobbles' | 'patterns' }
   | { name: 'records' }
+  | { name: 'compare'; friend?: string }
   | { name: 'create' }
   | { name: 'edit'; id: string }
   | { name: 'settings'; tab: SettingsTab; q?: string };
@@ -50,6 +51,8 @@ export function parseRoute(hash: string): Route {
       return { name: 'history', view: 'patterns' };
     case 'records':
       return { name: 'records' };
+    case 'compare':
+      return b ? { name: 'compare', friend: dec(b) } : { name: 'compare' };
     case 'create':
       return { name: 'create' };
     case 'edit':
@@ -75,6 +78,8 @@ export function routePath(r: Route): string {
       return r.view === 'patterns' ? '#/history/patterns' : '#/history';
     case 'records':
       return '#/records';
+    case 'compare':
+      return r.friend ? `#/compare/${enc(r.friend)}` : '#/compare';
     case 'create':
       return '#/create';
     case 'edit':

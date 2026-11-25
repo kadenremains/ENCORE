@@ -1,4 +1,5 @@
 import { db } from './db';
+import { friendBytes } from './friends';
 
 /**
  * What Encore keeps in this browser, measured from the data itself (bytes of text and numbers), so
@@ -13,6 +14,7 @@ export interface StorageUse {
   inlinePictures: number;
   wrappeds: number;
   lookups: number;
+  friends: number;
   other: number;
   /** the browser's own figure for everything this site stores, if it says */
   browserTotal?: number;
@@ -23,7 +25,7 @@ const textBytes = (s: string) => enc.encode(s).length;
 const DATA_URL = /data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+/g;
 
 export async function measureStorage(): Promise<StorageUse> {
-  const u: StorageUse = { scrobbles: 0, pictures: 0, pictureCount: 0, inlinePictures: 0, wrappeds: 0, lookups: 0, other: 0 };
+  const u: StorageUse = { scrobbles: 0, pictures: 0, pictureCount: 0, inlinePictures: 0, wrappeds: 0, lookups: 0, friends: 0, other: 0 };
   await db.months.each((c) => {
     u.scrobbles += c.ts.byteLength + c.ar.byteLength + c.tr.byteLength + c.al.byteLength + c.im.byteLength;
     for (const n of c.names) u.scrobbles += textBytes(n);
@@ -53,8 +55,11 @@ export async function measureStorage(): Promise<StorageUse> {
     u.lookups += textBytes(JSON.stringify(c));
   });
   await db.meta.each((m) => {
-    u.other += textBytes(JSON.stringify(m));
+    // friends' cached top lists count as friends' data
+    if (/^friend/.test(m.key)) u.friends += textBytes(JSON.stringify(m));
+    else u.other += textBytes(JSON.stringify(m));
   });
+  u.friends += await friendBytes();
   try {
     u.browserTotal = (await navigator.storage?.estimate?.())?.usage;
   } catch {

@@ -7,6 +7,7 @@ import { BarChart, CalendarHeatmap, Delta, Kpi, Ledger, Panel, WEEKDAYS, fmtDay,
 import { EntityImg, fmtNum } from '../../render/primitives';
 import { entityPath, routePath } from '../../router';
 import type { EntityKind } from '../../lib/types';
+import { FriendStrip } from '../FriendStrip';
 
 
 const breakNote = (days?: number) => (days ? ` · after a ${days >= 60 ? `${Math.round(days / 30)}-month` : `${days}-day`} break` : '');
@@ -63,6 +64,7 @@ export function Overview() {
           <Kpi value={fmtNum(stats.activeDays)} label="Days with music" sub={`of ${fmtNum(stats.spanDays)} · ${fmtPct(pct(stats.activeDays, stats.spanDays))}`} />
           <Kpi value={fmtNum(disc.length)} label="New artists" delta={<Delta cur={disc.length} prev={p?.discoveries('artist').length} />} sub={disc[0] ? `led by ${lib.artists[disc[0].idx].name}` : undefined} />
         </div>
+        <FriendStrip />
       </section>
 
       <div className="grid3">

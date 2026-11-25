@@ -98,6 +98,7 @@ function StorageBreakdown({ version }: { version: number }) {
     { label: 'Scrobbles', bytes: u.scrobbles, note: `${fmtNum(storedCount(lib))} plays, packed` },
     { label: 'Wrappeds & picture settings', bytes: u.wrappeds },
     { label: 'Artwork lookups', bytes: u.lookups, note: 'which picture belongs to which artist, album and song' },
+    ...(u.friends ? [{ label: 'Friends (Compare)', bytes: u.friends, note: 'their top lists and any full histories you downloaded; remove them on their Compare page' }] : []),
     { label: 'Settings and Last.fm details', bytes: u.other },
   ];
   const counted = rows.reduce((n, r) => n + r.bytes, 0);

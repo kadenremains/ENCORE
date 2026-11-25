@@ -4,6 +4,7 @@ import type { RangeSpec } from './types';
 import { applyRemotePrefs, getPrefs } from './prefs';
 import { MILESTONE_KEY } from './milestonePrefs';
 import { markLookChosen } from './look';
+import { applyRemoteFriends, useFriends } from './friends';
 
 /** Every synced setting in one object: date range, comparison, milestones, album prefs, Settings page. */
 export function getAppSettings() {
@@ -14,12 +15,13 @@ export function getAppSettings() {
   } catch {
     /* ignore */
   }
-  return { range: exploreRange, compare, milestones, albums: albumPrefs, prefs: getPrefs() };
+  return { range: exploreRange, compare, milestones, albums: albumPrefs, prefs: getPrefs(), friends: useFriends.getState().list };
 }
 
 /** Apply settings from another device or a backup. */
 export function applyAppSettings(raw: unknown) {
-  const d = (raw ?? {}) as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown; albums?: AlbumPrefs; prefs?: unknown };
+  const d = (raw ?? {}) as { range?: RangeSpec; compare?: CompareMode; milestones?: unknown; albums?: AlbumPrefs; prefs?: unknown; friends?: unknown };
+  if (d.friends) applyRemoteFriends(d.friends);
   try {
     if (d.range) localStorage.setItem('sw.range', JSON.stringify(d.range));
     if (d.compare) localStorage.setItem('sw.compare', d.compare);
