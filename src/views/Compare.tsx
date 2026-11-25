@@ -12,9 +12,12 @@ import {
   cancelDownload,
   downloadHistory,
   fetchFriendInfo,
-  forgetFriend,
+  addFriend,
   historyState,
-  rememberFriend,
+  refreshFriendImage,
+  removeFriend,
+  syncLastfmFriends,
+  useFriendSync,
   removeHistory,
   useDownloads,
   useFriends,
@@ -38,7 +41,6 @@ export function Compare({ friend }: { friend?: string }) {
 function PickFriend() {
   const apiKey = useApp((s) => s.apiKey);
   const demo = useApp((s) => s.demo);
-  const list = useFriends((s) => s.list);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -82,34 +84,60 @@ function PickFriend() {
               </button>
             </form>
             {err && <p className="error small">{err}</p>}
-            <p className="muted small">Last.fm profiles are public, so they don’t need Encore or to sign in. What Encore downloads about them stays on this device; only the list of people you’ve compared with syncs to your account.</p>
+            <p className="muted small">Last.fm profiles are public, so they don’t need Encore or to sign in. Comparing doesn’t add anyone to your friends, and what Encore downloads about them stays on this device for a day.</p>
           </Panel>
-          {list.length > 0 && (
-            <Panel title="People you’ve compared with">
-              <ul className="friend-list">
-                {list.map((f) => (
-                  <li key={f.name}>
-                    <a href={routePath({ name: 'compare', friend: f.name })}>
-                      <FriendAvatar f={f} size={34} />
-                      <span>{f.name}</span>
-                      <span className="muted small">{new Date(f.at).toLocaleDateString()}</span>
-                    </a>
-                    <button
-                      className="mini-btn"
-                      onClick={() => {
-                        if (confirm(`Remove ${f.name} and everything downloaded about them?`)) void forgetFriend(f.name);
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
+          <FriendsPanel />
         </>
       )}
     </div>
+  );
+}
+
+/** Your friends: Last.fm friends (you follow each other) by themselves, plus anyone you added. */
+function FriendsPanel() {
+  const list = useFriends((s) => s.list);
+  const sync = useFriendSync();
+  const username = useApp((s) => s.username);
+  const apiKey = useApp((s) => s.apiKey);
+  return (
+    <Panel
+      title="Your friends"
+      right={
+        <button className="mini-btn" disabled={sync.running} onClick={() => void syncLastfmFriends(username, apiKey)}>
+          {sync.running ? 'Checking Last.fm…' : 'Refresh from Last.fm'}
+        </button>
+      }
+    >
+      <p className="muted small">
+        People you follow on Last.fm who follow you back show up here by themselves{sync.at ? ` (checked ${new Date(sync.at).toLocaleDateString()})` : ''}. Anyone else you compare with can be added from their comparison.
+      </p>
+      {sync.error && <p className="error small">{sync.error}</p>}
+      {!list.length ? (
+        <p className="empty">{sync.running ? 'Looking for your Last.fm friends…' : 'No friends yet.'}</p>
+      ) : (
+        <ul className="friend-list">
+          {list.map((f) => (
+            <li key={f.name}>
+              <a href={routePath({ name: 'compare', friend: f.name })}>
+                <FriendAvatar f={f} size={34} />
+                <span>{f.name}</span>
+                <span className="muted small">{f.source === 'lastfm' ? 'Last.fm friend' : 'added by you'}</span>
+              </a>
+              {f.source === 'you' && (
+                <button
+                  className="mini-btn"
+                  onClick={() => {
+                    if (confirm(`Remove ${f.name} from your friends?`)) void removeFriend(f.name);
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }
 
@@ -142,8 +170,7 @@ function Versus({ name }: { name: string }) {
         if (!live) return;
         setResult(r);
         setErr(null);
-        // remembered once a comparison works (not for names that don't exist or are private)
-        rememberFriend({ name: r.info.name, image: r.info.image });
+        refreshFriendImage(r.info.name, r.info.image); // only if they're already a friend
       })
       .catch((e) => live && setErr(e as Error));
     return () => {
@@ -217,6 +244,7 @@ function Versus({ name }: { name: string }) {
           >
             Make a wrapped
           </button>
+          <FriendButton name={them.name} image={them.image} />
           <FullHistoryButton name={name} hist={hist ?? null} running={running} onGet={getFull} onRemoved={() => setHist(null)} />
           <a className="btn small ghost" href={routePath({ name: 'compare' })}>
             Someone else
@@ -267,6 +295,23 @@ function Versus({ name }: { name: string }) {
         )}
       </Panel>
     </div>
+  );
+}
+
+/** Add someone to your friends: only ever when you tap it. */
+function FriendButton({ name, image }: { name: string; image?: string }) {
+  const f = useFriends((s) => s.list.find((x) => x.name.toLowerCase() === name.toLowerCase()));
+  if (!f)
+    return (
+      <button className="btn small" onClick={() => addFriend({ name, image })}>
+        ＋ Add to friends
+      </button>
+    );
+  if (f.source === 'lastfm') return <span className="muted small">★ Last.fm friend</span>;
+  return (
+    <button className="btn small ghost" onClick={() => void removeFriend(name)} title="Remove from your friends">
+      ★ Friend · remove
+    </button>
   );
 }
 

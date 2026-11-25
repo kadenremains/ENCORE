@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { db, getMeta, setMeta } from './db';
-import { fetchHistory, fetchTop, fetchUserInfo, LastfmError, type TopEntry, type TopPeriod } from './lastfm';
+import { fetchFollowing, fetchHistory, fetchTop, fetchUserInfo, LastfmError, type TopEntry, type TopPeriod } from './lastfm';
 import { monthKey, pack, unpack } from './scrobbleStore';
 import { buildLibrary, type Library } from './library';
 import { applyFixes, type Fix } from './mismatches';
@@ -17,7 +17,9 @@ import type { StoredScrobble, UserInfo } from './types';
 export interface Friend {
   name: string; // as Last.fm spells it
   image?: string;
-  at: number; // last compared
+  at: number; // when they became a friend here
+  /** 'lastfm': you follow each other on Last.fm (kept in step by itself); 'you': you added them */
+  source: 'lastfm' | 'you';
 }
 
 const LS = 'sw.friends';
@@ -35,7 +37,7 @@ export function sanitizeFriends(raw: unknown): Friend[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((f): f is Friend => !!f && typeof f.name === 'string' && /^[\w.-]{2,30}$/.test(f.name) && typeof f.at === 'number')
-    .map((f) => ({ name: f.name, at: f.at, ...(typeof f.image === 'string' && /^https:\/\//.test(f.image) ? { image: f.image } : {}) }))
+    .map((f) => ({ name: f.name, at: f.at, source: f.source === 'lastfm' ? ('lastfm' as const) : ('you' as const), ...(typeof f.image === 'string' && /^https:\/\//.test(f.image) ? { image: f.image } : {}) }))
     .slice(0, MAX);
 }
 
@@ -51,21 +53,80 @@ function saveList(list: Friend[], sync = true) {
   if (sync) bumpSettings();
 }
 
-/** Remember a friend (most recent first). */
-export function rememberFriend(f: Omit<Friend, 'at'>) {
-  const cur = useFriends.getState().list;
-  // already at the top and compared in the last hour: nothing to save (or sync)
-  if (cur[0]?.name.toLowerCase() === f.name.toLowerCase() && cur[0].image === f.image && Date.now() - cur[0].at < 3600_000) return;
-  const list = cur.filter((x) => x.name.toLowerCase() !== f.name.toLowerCase());
-  saveList([{ ...f, at: Date.now() }, ...list].slice(0, MAX));
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+export const isFriend = (name: string) => useFriends.getState().list.some((f) => same(f.name, name));
+
+/** Add someone you compared with (only ever when you ask). */
+export function addFriend(f: { name: string; image?: string }) {
+  if (isFriend(f.name)) return;
+  saveList([{ name: f.name, image: f.image, at: Date.now(), source: 'you' as const }, ...useFriends.getState().list].slice(0, MAX));
 }
 
-export async function forgetFriend(name: string) {
-  saveList(useFriends.getState().list.filter((x) => x.name.toLowerCase() !== name.toLowerCase()));
-  await removeHistory(name);
+/** Remove someone you added (Last.fm friends come and go with Last.fm). Their data goes on the usual day timer. */
+export async function removeFriend(name: string) {
+  saveList(useFriends.getState().list.filter((x) => !same(x.name, name) || x.source === 'lastfm'));
 }
 
-/** The list from another device (merged: most recently compared wins). */
+/** A friend's picture changed (seen while comparing): keep the list current, without syncing for it. */
+export function refreshFriendImage(name: string, image?: string) {
+  const list = useFriends.getState().list;
+  const i = list.findIndex((f) => same(f.name, name));
+  if (i < 0 || list[i].image === image) return;
+  const next = list.slice();
+  next[i] = { ...next[i], name, image };
+  saveList(next, false);
+}
+
+/* ---------------- your Last.fm friends: people you follow who follow you back ---------------- */
+
+const SYNCED = 'friendsSyncedAt';
+export const useFriendSync = create<{ running: boolean; at: number | null; error: string | null }>(() => ({ running: false, at: null, error: null }));
+
+/**
+ * Who you follow on Last.fm, kept to those who follow you back. Last.fm friends are replaced by the
+ * current mutuals; people you added yourself stay.
+ */
+export async function syncLastfmFriends(me: string, apiKey: string): Promise<void> {
+  if (useFriendSync.getState().running) return;
+  useFriendSync.setState({ running: true, error: null });
+  try {
+    const following = await fetchFollowing(me, apiKey);
+    const mutual: { name: string; image?: string }[] = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < following.length) {
+        const f = following[next++];
+        try {
+          const theirs = await fetchFollowing(f.name, apiKey, 10);
+          if (theirs.some((x) => same(x.name, me))) mutual.push(f);
+        } catch {
+          /* private or gone: skip */
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    const cur = useFriends.getState().list;
+    const kept = cur.filter((f) => f.source === 'you' && !mutual.some((m) => same(m.name, f.name)));
+    const fromLastfm = mutual.map((m): Friend => ({ name: m.name, image: m.image, source: 'lastfm', at: cur.find((f) => same(f.name, m.name))?.at ?? Date.now() }));
+    saveList([...fromLastfm.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), ...kept].slice(0, MAX));
+    await setMeta(SYNCED, Date.now());
+    useFriendSync.setState({ at: Date.now() });
+  } catch (e) {
+    useFriendSync.setState({ error: `Couldn't get your Last.fm friends: ${(e as Error).message}` });
+  } finally {
+    useFriendSync.setState({ running: false });
+  }
+}
+
+/** Once a day, in the background. */
+export async function maybeSyncLastfmFriends(me: string, apiKey: string) {
+  const at = (await getMeta<number>(SYNCED)) ?? null;
+  useFriendSync.setState({ at });
+  if (!at || Date.now() - at > 24 * 3600_000) await syncLastfmFriends(me, apiKey);
+}
+
+/** The list from another device (merged: the newer entry for each name wins). */
 export function applyRemoteFriends(raw: unknown) {
   const byName = new Map<string, Friend>();
   for (const f of [...sanitizeFriends(raw), ...useFriends.getState().list]) {

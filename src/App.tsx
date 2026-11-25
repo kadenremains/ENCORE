@@ -14,7 +14,7 @@ import { initCloud, setOnSignedIn, setOnSignedOut, useCloud } from './lib/cloud'
 import { lookAccountChecked, useLook } from './lib/look';
 import { LookPicker } from './views/LookPicker';
 import { runMaintenance } from './lib/maintenance';
-import { startFriendCleanup } from './lib/friends';
+import { maybeSyncLastfmFriends, startFriendCleanup } from './lib/friends';
 import { useEditor } from './editor/editorStore';
 import { usePrefs } from './lib/prefs';
 import { applyAppSettings, getAppSettings } from './lib/appSettings';
@@ -72,7 +72,11 @@ function Main() {
 
   useEffect(() => {
     // shrink oversized old pictures first so the first sync sends the light versions
-    init().then(runMaintenance).catch(() => {}).then(startCloud);
+    init().then(runMaintenance).catch(() => {}).then(startCloud).then(() => {
+      // your Last.fm friends (people you follow who follow you back), refreshed once a day
+      const { username, demo, apiKey } = useApp.getState();
+      if (username && !demo) void maybeSyncLastfmFriends(username, apiKey);
+    });
     startFriendCleanup(); // friends' downloaded data goes a day after you last looked
     startUpdateChecks();
   }, [init]);

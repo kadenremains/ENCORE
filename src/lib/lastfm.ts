@@ -207,6 +207,24 @@ export async function fetchTop(user: string, kind: 'artist' | 'album' | 'track',
   return list.map((x) => ({ name: x.name ?? '', artist: kind === 'artist' ? '' : (x.artist?.name ?? ''), plays: Number(x.playcount) || 0 })).filter((x) => x.name && x.plays > 0);
 }
 
+/** Who someone follows on Last.fm (its API calls them friends), up to `maxPages` × 200. */
+export async function fetchFollowing(user: string, apiKey: string, maxPages = 10): Promise<{ name: string; image?: string }[]> {
+  const out: { name: string; image?: string }[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    let r: { friends?: { user?: { name?: string; image?: LfImage[] }[] | { name?: string; image?: LfImage[] }; '@attr'?: { totalPages?: string } } };
+    try {
+      r = await call(({ method: 'user.getfriends', user, limit: 200, page }), apiKey);
+    } catch (e) {
+      if (e instanceof LastfmError && e.code === 6) break; // follows nobody
+      throw e;
+    }
+    const raw = r.friends?.user;
+    for (const u of Array.isArray(raw) ? raw : raw ? [raw] : []) if (u.name) out.push({ name: u.name, image: u.image?.[u.image.length - 1]?.['#text'] || undefined });
+    if (page >= (Number(r.friends?.['@attr']?.totalPages) || 1)) break;
+  }
+  return out;
+}
+
 /**
  * Someone's scrobbles from `from` on (all of them for 0), page by page. Hands each page to `onPage`
  * as it arrives; stops early when `signal.cancelled` is set.

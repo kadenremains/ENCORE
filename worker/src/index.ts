@@ -52,6 +52,7 @@ const READ_METHODS = new Set([
   'user.gettopalbums',
   'user.gettoptracks',
   'user.getweeklychartlist',
+  'user.getfriends', // who someone follows (Compare: your Last.fm friends)
   'artist.getinfo',
   'album.getinfo',
   'track.getinfo',
