@@ -1,4 +1,5 @@
 import { db, setMeta, getMeta } from './db';
+import { scrobbleStore } from './scrobbleStore';
 import type { StoredScrobble, UserInfo } from './types';
 import { API_URL } from '../config';
 
@@ -138,17 +139,17 @@ export async function syncScrobbles(user: string, apiKey: string, onProgress: (p
   onProgress({ phase: 'starting', done: 0, total: 0 });
   const storedUser = await getMeta<string>('syncedUser');
   if (storedUser && storedUser.toLowerCase() !== user.toLowerCase()) {
-    await db.scrobbles.clear();
+    await scrobbleStore.clear();
   }
   await setMeta('syncedUser', user);
 
   // Pages are fetched in parallel, so an interrupted sync leaves gaps. Roll it back.
   const pending = await getMeta<{ from: number }>('syncPending');
   if (pending) {
-    await db.scrobbles.where('ts').aboveOrEqual(pending.from).delete();
+    await scrobbleStore.deleteFrom(pending.from);
   }
 
-  const last = await db.scrobbles.orderBy('ts').last();
+  const last = await scrobbleStore.last();
   const from = last ? last.ts + 1 : 0;
   await setMeta('syncPending', { from });
   const to = Math.floor(Date.now() / 1000);
@@ -160,7 +161,7 @@ export async function syncScrobbles(user: string, apiKey: string, onProgress: (p
   const total = Number(first.recenttracks['@attr']?.total) || 0;
   let done = 0;
   const save = async (rows: StoredScrobble[]) => {
-    if (rows.length) await db.scrobbles.bulkAdd(rows);
+    if (rows.length) await scrobbleStore.add(rows);
     done += rows.length;
     onProgress({ phase: 'fetching', done, total });
   };
@@ -246,14 +247,11 @@ const sig = (s: StoredScrobble) => `${s.ts}\u0001${s.ar}\u0001${s.tr}\u0001${s.a
  */
 export async function reconcileWindow(user: string, apiKey: string, from: number, to: number): Promise<boolean> {
   const remote = await fetchWindow(user, apiKey, from, to);
-  const local = await db.scrobbles.where('ts').between(from, to, true, true).toArray();
+  const local = await scrobbleStore.between(from, to);
   const a = remote.map(sig).sort();
   const b = local.map(sig).sort();
   if (a.length === b.length && a.every((x, i) => x === b[i])) return false;
-  await db.transaction('rw', db.scrobbles, async () => {
-    await db.scrobbles.where('ts').between(from, to, true, true).delete();
-    if (remote.length) await db.scrobbles.bulkAdd(remote);
-  });
+  await scrobbleStore.replaceBetween(from, to, remote);
   return true;
 }
 

@@ -22,8 +22,26 @@ export interface MetaEntry {
   value: unknown;
 }
 
+/**
+ * A month of scrobbles, packed: each name is written once in `names`, and every play is a time plus
+ * numbers pointing into that list. Far smaller and faster to load than one record per play.
+ * See scrobbleStore.ts.
+ */
+export interface MonthChunk {
+  k: number; // UTC year * 12 + month
+  n: number;
+  ts: Uint32Array; // unix seconds, ascending
+  names: string[];
+  ar: Uint16Array | Uint32Array;
+  tr: Uint16Array | Uint32Array;
+  al: Uint16Array | Uint32Array;
+  im: Uint16Array | Uint32Array; // '' = no picture
+}
+
 class WrappedDB extends Dexie {
+  /** the old one-record-per-play format; emptied when it's moved into `months` */
   scrobbles!: Table<StoredScrobble, number>;
+  months!: Table<MonthChunk, number>;
   overrides!: Table<ImageOverride, string>;
   imgcache!: Table<ImageCacheEntry, string>;
   projects!: Table<Project, string>;
@@ -38,6 +56,7 @@ class WrappedDB extends Dexie {
       projects: 'id, updated',
       meta: 'key',
     });
+    this.version(2).stores({ months: 'k' });
   }
 }
 

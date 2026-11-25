@@ -12,6 +12,16 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '2.9',
+    date: '2026-11-25',
+    title: 'Packed history',
+    notes: [
+      { text: 'Your downloaded scrobbles are stored packed: each name once a month, every play as numbers pointing to it. About a tenth of the space, and the app opens faster, most of all with a long history. Nothing about your plays changes.' },
+      { text: 'The first time you open this version your history is moved over once, checked play by play first; if anything doesn’t match, it stays as it was and tries again next time.' },
+      { text: 'The demo saves in about a second instead of half a minute.' },
+    ],
+  },
+  {
     version: '2.8.1',
     date: '2026-11-25',
     title: 'Safer home-screen sign-in',

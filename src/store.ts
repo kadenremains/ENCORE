@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
+import { scrobbleStore } from './lib/scrobbleStore';
 import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
@@ -198,7 +199,7 @@ let unsavedDemo: StoredScrobble[] | null = null;
 
 async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Library> {
   const inMemory = rowsInMemory ?? (unsavedDemo && useApp.getState().demo ? [...unsavedDemo] : null);
-  const [rows, albumArtists, trackCounts] = await Promise.all([inMemory ?? db.scrobbles.toArray(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
+  const [rows, albumArtists, trackCounts] = await Promise.all([inMemory ?? scrobbleStore.all(), getMeta<AlbumArtistList>('albumArtists'), getMeta<TrackCounts>('albumTrackCounts')]);
   const prefs = loadAlbumPrefs();
   const counts: Record<string, number> = {};
   for (const [k, [n]] of Object.entries(trackCounts ?? {})) counts[k] = n;
@@ -235,7 +236,7 @@ async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Libra
 async function claimLocalData(name: string, wasDemo: boolean) {
   const owner = (await getMeta<string>('syncedUser')) ?? (await getStoredUser())?.name;
   if (wasDemo || (owner && owner.toLowerCase() !== name.toLowerCase())) {
-    await db.scrobbles.clear();
+    await scrobbleStore.clear();
     await db.meta.clear();
   }
 }
@@ -342,7 +343,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   startDemo: async () => {
     clearSignedOut(set);
-    await db.scrobbles.clear();
+    await scrobbleStore.clear();
     await db.meta.clear();
     const rows = generateDemo();
     const user: UserInfo = { name: 'demo', playcount: rows.length, registered: rows[0].ts };
@@ -353,10 +354,8 @@ export const useApp = create<AppState>((set, get) => ({
     set({ demo: true, user, lib: await loadLibraryFromDb([...rows]), view: 'app' });
     void (async () => {
       try {
-        for (let i = 0; i < rows.length; i += 20000) {
-          if (!get().demo) return; // left the demo meanwhile
-          await db.scrobbles.bulkAdd(rows.slice(i, i + 20000));
-        }
+        if (!get().demo) return; // left the demo meanwhile
+        await scrobbleStore.add(rows); // packed, it's one quick write
         await setMeta('demoSaved', true);
       } finally {
         if (unsavedDemo === rows) unsavedDemo = null;
@@ -599,7 +598,7 @@ export const useApp = create<AppState>((set, get) => ({
     const { demo, username } = get();
     if (demo || !username) return;
     await withHistory(async () => {
-      await db.scrobbles.clear();
+      await scrobbleStore.clear();
       for (const k of ['syncPending', 'lastSync', 'editCursor', 'editPassAt']) await db.meta.delete(k);
     });
     set({ lib: await loadLibraryFromDb(), sync: null, syncError: null });
@@ -623,7 +622,7 @@ export const useApp = create<AppState>((set, get) => ({
   disconnect: async () => {
     LS.set('sw.username', '');
     LS.set('sw.demo', '0');
-    await db.scrobbles.clear();
+    await scrobbleStore.clear();
     await db.meta.clear();
     set({ username: '', user: null, lib: null, mismatches: null, demo: false, view: 'onboard', sync: null });
   },
