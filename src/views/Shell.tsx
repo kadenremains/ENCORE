@@ -162,7 +162,8 @@ export function Shell({ route, children, showRange = true }: { route: Route; chi
           <div className="rangebar-label">
             <span className="eyebrow">Showing</span>
             <strong>{label}</strong>
-            {gaps.length > 0 && (
+            {/* your breaks: not shown on someone else's stats (they don't apply there) */}
+            {gaps.length > 0 && !(route.name === 'friends' || route.name === 'friend' || route.name === 'friendEntity' || route.name === 'compare') && (
               <a
                 className="gap-note"
                 href={routePath({ name: 'settings', tab: 'stats' })}
