@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { fetchWithin } from './net';
 
 /**
  * Picks up new versions of the site. An app added to the iPhone home screen is usually resumed
@@ -16,7 +17,7 @@ function runningBuild(): string | null {
 
 async function latestBuild(): Promise<string | null> {
   try {
-    const r = await fetch(`${location.pathname}?check=${Date.now()}`, { cache: 'no-store' });
+    const r = await fetchWithin(`${location.pathname}?check=${Date.now()}`, { cache: 'no-store' }, 15_000);
     if (!r.ok) return null;
     return BUILD_RE.exec(await r.text())?.[1] ?? null;
   } catch {

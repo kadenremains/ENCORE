@@ -5,6 +5,7 @@ import { clearTombstone, localChanged, markDeleted } from './changes';
 import { getPrefs } from './prefs';
 import { API_URL } from '../config';
 import { overridesDb } from './picStore';
+import { fetchWithin } from './net';
 
 /* ---------------- in-memory state + subscriptions ---------------- */
 
@@ -151,7 +152,7 @@ interface ArtHit {
 }
 async function deezer(type: 'artist' | 'album' | 'track', q: string): Promise<ArtHit[]> {
   if (!API_URL) return [];
-  const r = await fetch(`${API_URL}/art?type=${type}&q=${encodeURIComponent(q)}`);
+  const r = await fetchWithin(`${API_URL}/art?type=${type}&q=${encodeURIComponent(q)}`, {}, 15_000);
   if (!r.ok) throw new Error(`artwork search ${r.status}`);
   return ((await r.json()) as { data?: ArtHit[] }).data ?? [];
 }
@@ -182,7 +183,7 @@ interface ItunesResult {
 /** Apple's iTunes Search, asked directly by the browser (it allows that), for covers nobody else has. */
 async function itunes(kind: 'album' | 'track', name: string, artist: string): Promise<string> {
   const entity = kind === 'album' ? 'album' : 'song';
-  const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${name}`)}&entity=${entity}&limit=8`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+  const res = await fetchWithin(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${name}`)}&entity=${entity}&limit=8`, { credentials: 'omit', referrerPolicy: 'no-referrer' }, 15_000);
   if (!res.ok) throw new Error(`iTunes ${res.status}`);
   const r: { results?: ItunesResult[] } = await res.json();
   const hit = r.results?.find((x) => similar(x.artistName, artist) && similar((kind === 'album' ? x.collectionName : x.trackName) ?? '', name));
@@ -421,7 +422,7 @@ export async function shrinkDataUrl(src: string, over = 900_000): Promise<string
  */
 export async function urlToDataUrl(url: string): Promise<{ src: string; width: number; height: number } | null> {
   try {
-    const r = await fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const r = await fetchWithin(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' }, 30_000);
     if (!r.ok) return null;
     const blob = await r.blob();
     if (!blob.type.startsWith('image/')) return null;

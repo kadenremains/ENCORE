@@ -2,6 +2,7 @@ import { db, setMeta, getMeta } from './db';
 import { scrobbleStore } from './scrobbleStore';
 import type { StoredScrobble, UserInfo } from './types';
 import { API_URL } from '../config';
+import { fetchWithin } from './net';
 
 const API = 'https://ws.audioscrobbler.com/2.0/';
 export const LASTFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -21,20 +22,17 @@ async function call<T>(params: Record<string, string | number>, apiKey: string, 
   const relay = !apiKey && !!API_URL;
   const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), ...(relay ? {} : { api_key: apiKey }), format: 'json' });
   let res: Response;
+  let body: { error?: number | string; message?: string; code?: string } & Record<string, unknown>;
   try {
-    res = await fetch(`${relay ? `${API_URL}/lastfm` : API}?${qs}`);
+    res = await fetchWithin(`${relay ? `${API_URL}/lastfm` : API}?${qs}`);
+    body = await res.json().catch(() => (res.ok ? Promise.reject(new Error('cut off')) : {}));
   } catch {
+    // no connection, no answer in time, or an answer cut off half way: try again a few times
     if (attempt < 5) {
       await sleep(800 * 2 ** attempt);
       return call(params, apiKey, attempt + 1);
     }
     throw new LastfmError('Network error talking to Last.fm');
-  }
-  let body: { error?: number | string; message?: string; code?: string } & Record<string, unknown>;
-  try {
-    body = await res.json();
-  } catch {
-    body = {};
   }
   if (typeof body.error === 'string') {
     throw new LastfmError(body.code === 'NO_KEY' ? "This site isn't set up with a shared Last.fm key yet. Use your own API key below." : body.error);

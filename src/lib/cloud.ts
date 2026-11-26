@@ -5,6 +5,7 @@ import { applyRemoteOverride, applyRemoteRemoval } from './images';
 import { blobId, fromB64, hashName, isSealed, loadDataKey, open, openPicture, seal, sealPicture, toB64, type DataKey } from './crypto';
 import type { Project } from '../editor/model';
 import { overridesDb, projectsDb } from './picStore';
+import { fetchWithin } from './net';
 
 /* ---------------- local storage helpers ---------------- */
 
@@ -120,11 +121,15 @@ function saveLocalKey(user: string, dk: DataKey | null) {
 }
 
 async function api<T>(token: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${API_URL}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const r = await fetchWithin(
+    `${API_URL}${path}`,
+    {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    30_000,
+  );
   if (r.status === 401) {
     await signOut();
     throw new Error('Signed out. Please sign in again.');
@@ -218,7 +223,7 @@ async function legacyPull(token: string) {
 export async function checkHealth() {
   if (!API_URL) return null;
   try {
-    const r = await fetch(`${API_URL}/health`);
+    const r = await fetchWithin(`${API_URL}/health`, {}, 15_000);
     const d = (await r.json()) as { lastfm?: boolean; signIn?: boolean };
     const available = { lastfm: !!d.lastfm, signIn: !!d.signIn };
     useCloud.setState({ available });
@@ -342,7 +347,7 @@ export async function pollPending(): Promise<boolean> {
     return false;
   }
   try {
-    const r = await fetch(`${API_URL}/auth/poll?id=${p.id}`);
+    const r = await fetchWithin(`${API_URL}/auth/poll?id=${p.id}`, {}, 15_000);
     const d = (await r.json()) as { token?: string; user?: string };
     if (d.token && d.user) {
       LS.set(PENDING, null);
@@ -445,7 +450,7 @@ export const handoffNeedsConfirm = () => !!handoff?.confirm;
 /** "Yes, that was me": release the sign-in to the app that's waiting for it. */
 export async function confirmHandoff(): Promise<void> {
   if (!handoff?.confirm || !API_URL) return;
-  const r = await fetch(`${API_URL}/auth/confirm`, { method: 'POST', headers: { Authorization: `Bearer ${handoff.token}`, 'Content-Type': 'text/plain' }, body: JSON.stringify({ id: handoff.confirm }) });
+  const r = await fetchWithin(`${API_URL}/auth/confirm`, { method: 'POST', headers: { Authorization: `Bearer ${handoff.token}`, 'Content-Type': 'text/plain' }, body: JSON.stringify({ id: handoff.confirm }) });
   if (!r.ok) throw new Error(r.status === 410 ? 'This sign-in expired. Start it again from the app.' : 'Couldn’t reach Encore. Try again.');
   handoff.confirm = null;
 }
@@ -557,11 +562,16 @@ export function syncNow(): Promise<void> {
 const BATCH_BYTES = 6_000_000;
 
 async function post(token: string, body: unknown): Promise<SyncResponse> {
-  const r = await fetch(`${API_URL}/sync`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  // (a page of synced wrappeds can be several MB: a minute, not seconds)
+  const r = await fetchWithin(
+    `${API_URL}/sync`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    60_000,
+  );
   if (r.status === 401) {
     await signOut();
     throw new Error('Signed out. Please sign in again.');
@@ -611,11 +621,15 @@ async function uploadPictures(token: string, pics: Map<string, Picture>, dk: Dat
       while (next < missing.length) {
         const id = missing[next++];
         const p = pics.get(id)!;
-        const r = await fetch(`${API_URL}/blob/${id}`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
-          body: await sealPicture(p.mime, p.bytes, dk),
-        });
+        const r = await fetchWithin(
+          `${API_URL}/blob/${id}`,
+          {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+            body: await sealPicture(p.mime, p.bytes, dk),
+          },
+          120_000,
+        );
         if (!r.ok) throw new Error(`Picture upload failed (${r.status})`);
       }
     };
@@ -632,7 +646,7 @@ async function restorePictures(text: string, token: string, dk: DataKey, cache: 
     let p = cache.get(id);
     if (!p) {
       p = (async () => {
-        const r = await fetch(`${API_URL}/blob/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const r = await fetchWithin(`${API_URL}/blob/${id}`, { headers: { Authorization: `Bearer ${token}` } }, 120_000);
         if (!r.ok) throw new Error(`Picture download failed (${r.status})`);
         return openPicture(new Uint8Array(await r.arrayBuffer()), dk);
       })();
