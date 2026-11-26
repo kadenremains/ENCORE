@@ -7,6 +7,9 @@ import { fetchWithin } from './net';
 const API = 'https://ws.audioscrobbler.com/2.0/';
 export const LASTFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
 
+/** What a sync failure says when it's Last.fm's own servers failing, not the app or your connection. */
+export const LASTFM_DOWN = 'Last.fm’s servers are having problems right now. Everything already downloaded still works; try again later.';
+
 export class LastfmError extends Error {
   code?: number;
   constructor(message: string, code?: number) {
@@ -39,9 +42,12 @@ async function call<T>(params: Record<string, string | number>, apiKey: string, 
   }
   if (body.error) {
     // 29 = rate limit, 8/11/16 = transient backend errors
-    if (typeof body.error === 'number' && [8, 11, 16, 29].includes(body.error) && attempt < 6) {
-      await sleep(1000 * 2 ** attempt);
-      return call(params, apiKey, attempt + 1);
+    if (typeof body.error === 'number' && [8, 11, 16, 29].includes(body.error)) {
+      if (attempt < 6) {
+        await sleep(1000 * 2 ** attempt);
+        return call(params, apiKey, attempt + 1);
+      }
+      if (body.error !== 29) throw new LastfmError(LASTFM_DOWN, body.error);
     }
     throw new LastfmError(body.message || 'Last.fm error', typeof body.error === 'number' ? body.error : undefined);
   }
@@ -273,6 +279,8 @@ export async function fetchAlbumArtists(user: string, apiKey: string): Promise<[
     pages = Math.min(60, Number(r.topalbums['@attr']?.totalPages) || 1);
     page++;
   } while (page <= pages);
+  // no albums at all is Last.fm having a bad day, not your library: keep the grouping you have
+  if (!out.length) throw new LastfmError('Last.fm returned no albums');
   return out;
 }
 
@@ -296,6 +304,7 @@ async function fetchWindow(user: string, apiKey: string, from: number, to: numbe
   const base = { method: 'user.getrecenttracks', user, limit: 200, from, to };
   const first = await call<RecentResponse>({ ...base, page: 1 }, apiKey);
   const pages = Number(first.recenttracks['@attr']?.totalPages) || 0;
+  const total = Number(first.recenttracks['@attr']?.total) || 0;
   const out = parseTracks(first);
   let next = 2;
   const worker = async () => {
@@ -306,6 +315,9 @@ async function fetchWindow(user: string, apiKey: string, from: number, to: numbe
     }
   };
   await Promise.all([worker(), worker()]);
+  // pages that came back short (Last.fm struggling): not a picture of the month to go by
+  // (a little slack: plays scrobbled while reading shift the pages)
+  if (out.length + 5 < total) throw new LastfmError(`Last.fm sent ${out.length} of ${total} scrobbles`);
   return out.filter((s) => s.ts >= from && s.ts <= to);
 }
 
@@ -318,6 +330,9 @@ const sig = (s: StoredScrobble) => `${s.ts}\u0001${s.ar}\u0001${s.tr}\u0001${s.a
 export async function reconcileWindow(user: string, apiKey: string, from: number, to: number): Promise<boolean> {
   const remote = await fetchWindow(user, apiKey, from, to);
   const local = await scrobbleStore.between(from, to);
+  // All of the stretch, or most of it, gone at once isn't an edit anyone makes; it's Last.fm answering
+  // with empty or partial lists during an outage. Keep what's stored rather than wipe it.
+  if (local.length && (!remote.length || (remote.length < local.length / 2 && local.length - remote.length > 20))) return false;
   const a = remote.map(sig).sort();
   const b = local.map(sig).sort();
   if (a.length === b.length && a.every((x, i) => x === b[i])) return false;

@@ -1,5 +1,6 @@
 import { useApp } from '../store';
 import { fmtNum } from '../render/primitives';
+import { LASTFM_DOWN } from '../lib/lastfm';
 
 export function SyncPill() {
   const { sync, syncError, runSync, demo, editCheck } = useApp();
@@ -23,7 +24,7 @@ export function SyncPill() {
   if (syncError)
     return (
       <button className="pill error" onClick={() => runSync()} title={syncError}>
-        Sync failed · retry
+        {syncError === LASTFM_DOWN ? 'Last.fm is down · retry' : 'Sync failed · retry'}
       </button>
     );
   if (sync && (sync.phase === 'fetching' || sync.phase === 'starting')) {
