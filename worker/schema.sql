@@ -1,5 +1,7 @@
 -- Full schema for a new database. (Existing databases got the later columns with ALTER TABLE.)
-CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, display TEXT, created INTEGER, last_seen INTEGER);
+-- registered: when the Last.fm account was created (survives a rename); was: its former names
+CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, display TEXT, created INTEGER, last_seen INTEGER, registered INTEGER, was TEXT);
+CREATE INDEX IF NOT EXISTS users_registered ON users (registered);
 CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user TEXT NOT NULL, created INTEGER, last_seen INTEGER);
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user);
 CREATE TABLE IF NOT EXISTS projects (

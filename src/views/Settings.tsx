@@ -11,7 +11,7 @@ import { DEFAULT_PREFS, resetPrefs, setPrefs, usePrefs, type Prefs } from '../li
 import { ACCENTS, PALETTES } from '../lib/looks';
 import { APP_VERSION, CHANGELOG } from '../lib/changelog';
 import { STEP_OPTIONS, loadMilestonePrefs, saveMilestonePrefs } from '../lib/milestonePrefs';
-import { deleteAccountData, fetchAdminStats, fetchOwnerNotes, forceFullSync, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
+import { deleteAccountData, fetchAdminStats, fetchOwnerNotes, mergeRenamedAccount, forceFullSync, signOut, startSignIn, syncNow, useCloud, type AdminStats } from '../lib/cloud';
 import { allOverrides, bigAvatar, clearLookupCache, useImagesVersion } from '../lib/images';
 import { db, getMeta } from '../lib/db';
 import { makeBackup, restoreBackup } from '../lib/backup';
@@ -940,7 +940,7 @@ function AboutTab() {
         <ul className="about-list small">
           <li>No ads, analytics or tracking cookies. Nothing is sold or shared.</li>
           <li>Your listening history and stats stay on this device.</li>
-          <li>Signed in, your synced wrappeds, pictures and settings are encrypted on your device before upload, and the key is kept apart from the database. The server knows your username, when you last used Encore and how much you store.</li>
+          <li>Signed in, your synced wrappeds, pictures and settings are encrypted on your device before upload, and the key is kept apart from the database. The server knows your username (and when your Last.fm account was created, so a changed username is still recognised as you), when you last used Encore and how much you store.</li>
           <li>Not signed in, Last.fm requests pass through Encore’s server; only the usernames looked up are noted (with when). Use your own API key to skip the server.</li>
           <li>Friends and people you look up: what Encore downloads about them stays on this device and is deleted a day after you last look. Only your friends list (usernames) syncs.</li>
           <li>Settings → Account → Delete my synced data erases everything the server has for you.</li>
@@ -998,6 +998,52 @@ function AboutTab() {
 }
 
 /* ------------------------------------------------------------------ owner */
+
+/**
+ * Someone changed their Last.fm username. Encore recognises that by itself when they sign in under
+ * the new name; this is for the times it couldn't (the rename came before Encore kept the details it
+ * checks, or Last.fm was down then).
+ */
+function MergeRenamed({ onDone }: { onDone: () => void }) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  const run = async () => {
+    const a = from.trim();
+    const b = to.trim();
+    if (!confirm(`Join “${a}” onto “${b}”? Their synced data, signed-in devices and stats move to ${b}. Only do this if it's the same Last.fm account, renamed.`)) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      await mergeRenamedAccount(a, b);
+      setNote({ text: `Done: ${a} is now part of ${b}.` });
+      setFrom('');
+      setTo('');
+      onDone();
+    } catch (e) {
+      setNote({ text: (e as Error).message, bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Group
+      title="Renamed accounts"
+      desc="When someone changes their Last.fm username and signs in under the new name, Encore moves their account over by itself. If it didn't (they renamed before this existed), join the old name onto the new one here: their synced wrappeds, signed-in devices and these stats move over."
+    >
+      <div className="row gap wrap">
+        <input className="text-input" placeholder="Old name" value={from} onChange={(e) => setFrom(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <span className="muted">→</span>
+        <input className="text-input" placeholder="New name" value={to} onChange={(e) => setTo(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <button className="btn" disabled={busy || !from.trim() || !to.trim()} onClick={() => void run()}>
+          {busy ? 'Joining…' : 'Join'}
+        </button>
+      </div>
+      {note && <p className={`small ${note.bad ? 'error' : 'muted'}`}>{note.text}</p>}
+    </Group>
+  );
+}
 
 function OwnerTab() {
   const [data, setData] = useState<AdminStats | null>(null);
@@ -1069,6 +1115,7 @@ function OwnerTab() {
                         <a href={`https://www.last.fm/user/${encodeURIComponent(a.account)}`} target="_blank" rel="noreferrer">
                           {a.account}
                         </a>
+                        {!!a.was?.length && <div className="muted small">was {a.was.join(', ')}</div>}
                       </td>
                       <td>{when(a.last_seen)}</td>
                       <td>{size(a.bytes)}</td>
@@ -1085,6 +1132,7 @@ function OwnerTab() {
           </>
         )}
       </Group>
+      {data && <MergeRenamed onDone={() => setN(n + 1)} />}
       {data && (
         <Group title="Looked up without signing in" desc="Last.fm usernames whose history was downloaded through Encore without signing in (someone may look up a friend). Name and when only.">
           {!data.visitors.length ? (

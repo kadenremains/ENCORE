@@ -175,21 +175,48 @@ function adoptKey(user: string, dk: DataKey, fresh: boolean) {
   useCloud.setState({ privacy: 'ready', error: null });
 }
 
-/** Owner accounts (set on the server) see the owner stats in Settings. */
+interface Me {
+  name: string;
+  owner?: boolean;
+  /** the account's former Last.fm names (lowercase), if it was renamed */
+  was?: string[];
+}
+
+/**
+ * Owner accounts (set on the server) see the owner stats in Settings. Also notices a rename: this
+ * device signed in under the old name, and the server now knows the account by its new one.
+ */
 async function checkOwner() {
-  const { token } = useCloud.getState();
+  const { token, user } = useCloud.getState();
   if (!token || !API_URL) return;
   try {
-    const me = await api<{ name: string; owner?: boolean }>(token, '/me');
+    const me = await api<Me>(token, '/me');
     useCloud.setState({ owner: !!me.owner });
+    if (user && me.name.toLowerCase() !== user.toLowerCase()) {
+      LS.set(K.auth, JSON.stringify({ ...loadAuth(), user: me.name }));
+      if (dataKey) saveLocalKey(me.name, dataKey);
+      useCloud.setState({ user: me.name });
+      onSignedIn?.(me.name); // the app carries on under the new name, keeping everything
+    }
   } catch {
     /* try again next launch */
   }
 }
 
+/** The signed-in account's former Last.fm names (lowercase): [] if none, or if the server can't say. */
+export async function formerNames(): Promise<string[]> {
+  const { token } = useCloud.getState();
+  if (!token || !API_URL) return [];
+  try {
+    return (await api<Me>(token, '/me')).was ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export interface AdminStats {
   now: number;
-  accounts: { account: string; joined: number; last_seen: number | null; devices: number; private: number; wrappeds: number; pictures: number; bytes: number }[];
+  accounts: { account: string; joined: number; last_seen: number | null; devices: number; private: number; wrappeds: number; pictures: number; bytes: number; was?: string[] }[];
   visitors: { name: string; first_seen: number; last_seen: number; visits: number }[];
 }
 
@@ -198,6 +225,13 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   const { token } = useCloud.getState();
   if (!token) throw new Error('Not signed in');
   return api<AdminStats>(token, '/admin/stats');
+}
+
+/** Owner only: join a renamed account's old name onto its new one (data, devices, stats). */
+export async function mergeRenamedAccount(from: string, to: string): Promise<void> {
+  const { token } = useCloud.getState();
+  if (!token) throw new Error('Not signed in');
+  await api(token, '/admin/merge', { from, to });
 }
 
 /** Owner only: behind-the-scenes version notes, which live on the server, not in the public code. */

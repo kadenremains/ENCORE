@@ -15,6 +15,7 @@ Last.fm profiles are public, so looking someone up or comparing with them needs 
 **If you sign in with Last.fm** (to sync between devices):
 
 - Your Last.fm username, when you first signed in and when you last used Encore, and a sign-in token per device. Devices unused for 6 months are signed out.
+- When your Last.fm account was created (public on your Last.fm profile), and any former usernames. If you change your Last.fm username, that's how Encore knows it's still you: signing in under the new name moves your synced data and devices over instead of starting a new, empty account.
 - Your synced wrappeds, custom pictures and settings, **encrypted on your device before upload**. The database holds only scrambled data. Your account's key is stored locked with a server secret that's kept outside the database, and the server hands it only to your own signed-in devices. So someone reading the database (including us) can't read your data. It isn't end-to-end: the server itself can unlock the key, which is what lets a new device sign in and just work.
 - How much space your synced data takes (it's encrypted; only the size is known).
 

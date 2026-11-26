@@ -18,6 +18,7 @@ import { md5 } from './md5';
  *  - POST /auth/confirm      the approving browser releases a pickup that came from another connection
  *  - GET  /admin/stats       owner-only usage numbers
  *  - GET  /admin/notes       owner-only behind-the-scenes version notes (kept in the database, not in this repo)
+ *  - POST /admin/merge       owner-only: join a renamed Last.fm account's old name onto its new one
  *
  * Privacy: synced wrappeds, pictures and settings are encrypted in the browser before upload
  * ("e1:" values, picture names hashed to "h:" keys). Each account's key is stored locked with
@@ -35,6 +36,8 @@ export interface Env {
   OWNERS?: string;
   /** Worker secret (base64, 32 bytes): locks every account's data key. Never in the database or this repo. */
   VAULT_KEY?: string;
+  /** Last.fm's API address; unset = the real one (a local test points it at a stand-in) */
+  LASTFM_API?: string;
 }
 
 const isOwner = (user: string, env: Env) =>
@@ -44,7 +47,7 @@ const isOwner = (user: string, env: Env) =>
     .filter(Boolean)
     .includes(user.toLowerCase());
 
-const LASTFM = 'https://ws.audioscrobbler.com/2.0/';
+const lastfm = (env: Env) => env.LASTFM_API || 'https://ws.audioscrobbler.com/2.0/';
 const READ_METHODS = new Set([
   'user.getinfo',
   'user.getrecenttracks',
@@ -150,6 +153,9 @@ export default {
         case '/admin/notes':
           res = await adminNotes(req, env);
           break;
+        case '/admin/merge':
+          res = req.method === 'POST' ? await adminMerge(req, env) : json({ error: 'POST only' }, 405);
+          break;
         case '/blobs/missing':
           res = req.method === 'POST' ? await blobsMissing(req, env) : json({ error: 'POST only' }, 405);
           break;
@@ -233,7 +239,7 @@ async function lastfmRelay(req: Request, url: URL, env: Env, ctx?: ExecutionCont
   }
   params.set('api_key', key);
   params.set('format', 'json');
-  const upstream = await fetch(`${LASTFM}?${params}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
+  const upstream = await fetch(`${lastfm(env)}?${params}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
   return new Response(upstream.body, { status: upstream.status, headers: { 'content-type': 'application/json' } });
 }
 
@@ -302,7 +308,7 @@ async function authCallback(req: Request, url: URL, env: Env) {
   if (!token || !key || !secret) return Response.redirect(`${redirect}#auth_error=missing_token`, 302);
   const sig = md5(`api_key${key}methodauth.getSessiontoken${token}${secret}`);
   const qs = new URLSearchParams({ method: 'auth.getSession', api_key: key, token, api_sig: sig, format: 'json' });
-  const r = await fetch(`${LASTFM}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
+  const r = await fetch(`${lastfm(env)}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
   // only the username is used: Last.fm's session key is never kept or passed on
   const body = (await r.json().catch(() => ({}))) as { session?: { name: string }; error?: number; message?: string };
   if (!body.session?.name) return Response.redirect(`${redirect}#auth_error=${encodeURIComponent(body.message ?? 'lastfm_rejected')}`, 302);
@@ -310,10 +316,18 @@ async function authCallback(req: Request, url: URL, env: Env) {
   const now = Date.now();
   const session = randomToken();
   const pending = url.searchParams.get('pending');
+  // the same Last.fm account seen before under another name: everything moves to this one first
+  const found = await lastfmRegistered(env, name);
+  const registered = typeof found === 'number' ? found : null;
+  const from = registered ? await renamedFrom(env, name.toLowerCase(), registered) : null;
   const stmts = [
-    env.DB.prepare('INSERT INTO users (name, display, created, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display, last_seen = excluded.last_seen').bind(name.toLowerCase(), name, now, now),
+    ...(from ? await mergeStatements(env, from, name) : []),
+    env.DB.prepare(
+      'INSERT INTO users (name, display, created, last_seen, registered) VALUES (?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET display = excluded.display, last_seen = excluded.last_seen, registered = COALESCE(excluded.registered, users.registered)',
+    ).bind(name.toLowerCase(), name, now, now, registered),
     env.DB.prepare('INSERT INTO sessions (token, user, created, last_seen) VALUES (?, ?, ?, ?)').bind(session, name.toLowerCase(), now, now),
   ];
+  if (from) console.log(JSON.stringify({ evt: 'account-renamed' }));
   let confirm = '';
   if (pending && /^[0-9a-f]{32}$/.test(pending)) {
     // A second session for the app that's waiting (each device context gets its own token). Whoever
@@ -486,11 +500,14 @@ async function adminStats(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
   if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
-  const [accounts, visitors] = await env.DB.batch([
+  const [accounts, visitors, renamed] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM account_stats ORDER BY last_seen DESC'),
     env.DB.prepare('SELECT display AS name, first_seen, last_seen, visits FROM visitors ORDER BY last_seen DESC LIMIT 500'),
+    env.DB.prepare('SELECT display, was FROM users WHERE was IS NOT NULL'),
   ]);
-  return json({ accounts: accounts.results, visitors: visitors.results, now: Date.now() });
+  // the names a renamed account had before, next to it
+  const was = new Map((renamed.results as { display: string; was: string }[]).map((r) => [r.display, formerNames(r.was)]));
+  return json({ accounts: (accounts.results as { account: string }[]).map((a) => ({ ...a, was: was.get(a.account) ?? [] })), visitors: visitors.results, now: Date.now() });
 }
 
 /** Behind-the-scenes version notes. They live only in the database so they aren't public. Owners only. */
@@ -592,11 +609,150 @@ async function userFor(req: Request, env: Env): Promise<string | null> {
   return row.user;
 }
 
+/**
+ * Who am I: the account's name (the current one, after a rename), whether it's an owner, and the
+ * names it had before (so a device holding data under an old name keeps it).
+ */
 async function me(req: Request, env: Env) {
   const user = await userFor(req, env);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const row = await env.DB.prepare('SELECT display FROM users WHERE name = ?').bind(user).first<{ display: string }>();
-  return json({ name: row?.display ?? user, owner: isOwner(user, env) });
+  const row = await env.DB.prepare('SELECT display, registered, was FROM users WHERE name = ?').bind(user).first<{ display: string; registered: number | null; was: string | null }>();
+  // accounts from before creation times were kept: fill it in once, so a later rename is recognised
+  if (row && !row.registered) {
+    const registered = await lastfmRegistered(env, row.display ?? user);
+    if (typeof registered === 'number') await env.DB.prepare('UPDATE users SET registered = ? WHERE name = ?').bind(registered, user).run();
+  }
+  return json({ name: row?.display ?? user, owner: isOwner(user, env), was: formerNames(row?.was ?? null) });
+}
+
+/* ---------------- renamed Last.fm accounts ---------------- */
+
+/**
+ * Last.fm lets people change their username, and Encore knows accounts by name. What doesn't change
+ * is the second the Last.fm account was created, so that's kept for every account: someone signing
+ * in under a new name with the same creation time as a known account, whose old name Last.fm no
+ * longer knows, is that account renamed. (Signing in proves the new name; nobody can choose their
+ * creation time; and a different person who happened to sign up in the same second still has their
+ * old name, so they're never mistaken for each other.)
+ *
+ * lastfmRegistered: when this Last.fm account was created (unix seconds); 'missing' if Last.fm has
+ * no such user; null if it can't say right now.
+ */
+async function lastfmRegistered(env: Env, name: string): Promise<number | 'missing' | null> {
+  const { key } = await getKeys(env);
+  if (!key) return null;
+  try {
+    const qs = new URLSearchParams({ method: 'user.getinfo', user: name, api_key: key, format: 'json' });
+    const r = await fetch(`${lastfm(env)}?${qs}`, { headers: { 'User-Agent': 'EncoreStats/1.0' } });
+    const b = (await r.json()) as { user?: { registered?: { unixtime?: string } }; error?: number; message?: string };
+    if (b.error === 6 && /not found/i.test(b.message ?? '')) return 'missing';
+    const registered = Number(b.user?.registered?.unixtime);
+    // (a struggling Last.fm has answered with zeros: only a real date counts)
+    return registered > 1_000_000_000 ? registered : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The account (by its stored name) that `name` used to be, if it was renamed. */
+async function renamedFrom(env: Env, name: string, registered: number): Promise<string | null> {
+  const rows = await env.DB.prepare('SELECT name, display FROM users WHERE registered = ? AND name != ?').bind(registered, name).all<{ name: string; display: string }>();
+  for (const r of rows.results) if ((await lastfmRegistered(env, r.display ?? r.name)) === 'missing') return r.name;
+  return null;
+}
+
+const formerNames = (was: string | null) => (was ? was.split(',').filter(Boolean) : []);
+
+/** Everything the account stores that's encrypted with its data key. */
+const DATA_TABLES = ['projects', 'images', 'settings', 'chunks', 'blobs', 'vault'] as const;
+
+/**
+ * Statements that join the account `from` onto `to` (its new name; `toDisplay` as Last.fm writes it):
+ * synced data, signed-in devices, owner stats, and the old name noted. Synced data is encrypted with
+ * one account's key, so the two can't be mixed: `from`'s moves over (key included) unless `to` already
+ * synced something of its own, having been signed in under the new name first. Then `to`'s is the one
+ * in use, and `from`'s copy, which no device could read any more, goes.
+ */
+async function mergeStatements(env: Env, from: string, toDisplay: string): Promise<D1PreparedStatement[]> {
+  const to = toDisplay.toLowerCase();
+  const count = (u: string) =>
+    env.DB.prepare(
+      'SELECT (SELECT count(*) FROM projects WHERE user = ?1 AND deleted = 0) + (SELECT count(*) FROM images WHERE user = ?1 AND deleted = 0) + (SELECT count(*) FROM settings WHERE user = ?1) + (SELECT count(*) FROM vault WHERE user = ?1) AS n',
+    )
+      .bind(u)
+      .first<{ n: number }>()
+      .then((r) => r?.n ?? 0);
+  const user = (u: string) => env.DB.prepare('SELECT display, created, last_seen, registered, was FROM users WHERE name = ?').bind(u).first<{ display: string; created: number; last_seen: number; registered: number | null; was: string | null }>();
+  const visitor = (u: string) => env.DB.prepare('SELECT display, first_seen, last_seen, visits FROM visitors WHERE name = ?').bind(u).first<{ display: string; first_seen: number; last_seen: number; visits: number }>();
+  const [fromStores, toSynced, a, b, va, vb] = await Promise.all([
+    count(from),
+    // (the new name's own key alone, with nothing encrypted under it yet, doesn't count)
+    count(to).then(async (n) => n - ((await env.DB.prepare('SELECT 1 AS x FROM vault WHERE user = ?').bind(to).first()) ? 1 : 0)),
+    user(from),
+    user(to),
+    visitor(from),
+    visitor(to),
+  ]);
+  const stmts = DATA_TABLES.flatMap((t) =>
+    fromStores && !toSynced
+      ? [env.DB.prepare(`DELETE FROM ${t} WHERE user = ?`).bind(to), env.DB.prepare(`UPDATE ${t} SET user = ? WHERE user = ?`).bind(to, from)]
+      : [env.DB.prepare(`DELETE FROM ${t} WHERE user = ?`).bind(from)],
+  );
+  // devices signed in under the old name carry on under the new one
+  stmts.push(env.DB.prepare('UPDATE sessions SET user = ? WHERE user = ?').bind(to, from), env.DB.prepare('UPDATE auth_pending SET user = ? WHERE lower(user) = ?').bind(toDisplay, from));
+  const earliest = (x?: number | null, y?: number | null) => Math.min(x || Infinity, y || Infinity);
+  const latest = (x?: number | null, y?: number | null) => Math.max(x ?? 0, y ?? 0);
+  if (a || b) {
+    // one account row, joined when the first of the two was, with the old name noted
+    const was = [...new Set([...formerNames(b?.was ?? null), ...formerNames(a?.was ?? null), from])].filter((n) => n !== to).join(',');
+    const created = earliest(a?.created, b?.created);
+    stmts.push(
+      env.DB.prepare('DELETE FROM users WHERE name = ?').bind(from),
+      env.DB.prepare(
+        'INSERT INTO users (name, display, created, last_seen, registered, was) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET created = excluded.created, last_seen = excluded.last_seen, registered = excluded.registered, was = excluded.was',
+      ).bind(to, b?.display ?? toDisplay, Number.isFinite(created) ? created : Date.now(), latest(a?.last_seen, b?.last_seen) || null, b?.registered ?? a?.registered ?? null, was),
+    );
+  }
+  if (va) {
+    // looked up without signing in, under either name: one row
+    stmts.push(
+      env.DB.prepare('DELETE FROM visitors WHERE name = ?').bind(from),
+      env.DB.prepare('INSERT INTO visitors (name, display, first_seen, last_seen, visits) VALUES (?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET first_seen = excluded.first_seen, last_seen = excluded.last_seen, visits = excluded.visits').bind(
+        to,
+        vb?.display ?? toDisplay,
+        earliest(va.first_seen, vb?.first_seen),
+        latest(va.last_seen, vb?.last_seen),
+        va.visits + (vb?.visits ?? 0),
+      ),
+    );
+  }
+  return stmts;
+}
+
+/**
+ * Owner only: join an old name onto the new one by hand, for a rename Encore couldn't recognise by
+ * itself (it happened before creation times were kept, or Last.fm was down at the time).
+ * POST { from, to }: both names as Encore knows them (signed-in accounts or looked-up profiles).
+ */
+async function adminMerge(req: Request, env: Env) {
+  const user = await userFor(req, env);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  if (!isOwner(user, env)) return json({ error: 'not allowed' }, 403);
+  const body = (await req.json().catch(() => ({}))) as { from?: unknown; to?: unknown };
+  const clean = (v: unknown) => (typeof v === 'string' && /^[\w.-]{2,32}$/.test(v.trim()) ? v.trim() : '');
+  const from = clean(body.from).toLowerCase();
+  const to = clean(body.to);
+  if (!from || !to || from === to.toLowerCase()) return json({ error: 'Give the old name and the new name.' }, 400);
+  if (isOwner(from, env)) return json({ error: 'Owner accounts are set on the server: change OWNERS there instead.' }, 400);
+  const known = async (n: string) =>
+    !!(await env.DB.prepare('SELECT 1 AS x FROM users WHERE name = ?1 UNION SELECT 1 FROM visitors WHERE name = ?1').bind(n).first());
+  if (!(await known(from))) return json({ error: `Encore doesn't know “${from}”.` }, 404);
+  if (!(await known(to.toLowerCase()))) return json({ error: `Encore doesn't know “${to}” yet: they need to sign in (or be looked up) under the new name first.` }, 404);
+  // the new name as written on its own row (or as typed)
+  const row = await env.DB.prepare('SELECT display FROM users WHERE name = ?1 UNION SELECT display FROM visitors WHERE name = ?1').bind(to.toLowerCase()).first<{ display: string }>();
+  await env.DB.batch(await mergeStatements(env, from, row?.display ?? to));
+  console.log(JSON.stringify({ evt: 'account-merged' }));
+  return json({ ok: true });
 }
 
 /** Everything the server holds for this account, gone: synced data, pictures, key, devices, name. */

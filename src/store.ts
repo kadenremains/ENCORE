@@ -6,7 +6,7 @@ import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, rec
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
 import type { CompareMode } from './lib/range';
-import { consumeAuthRedirect } from './lib/cloud';
+import { consumeAuthRedirect, formerNames } from './lib/cloud';
 import { bumpSettings } from './lib/changes';
 import { API_URL } from './config';
 import { getPrefs } from './lib/prefs';
@@ -231,10 +231,16 @@ async function loadLibraryFromDb(rowsInMemory?: StoredScrobble[]): Promise<Libra
 
 /**
  * Make this browser's downloaded data belong to `name`. Demo data, or another account's history
- * and caches (album grouping, edit-check progress, profile), are wiped first.
+ * and caches (album grouping, edit-check progress, profile), are wiped first; the same account
+ * under a new Last.fm name (the server knows its former names) keeps everything.
  */
 async function claimLocalData(name: string, wasDemo: boolean) {
   const owner = (await getMeta<string>('syncedUser')) ?? (await getStoredUser())?.name;
+  if (!wasDemo && owner && owner.toLowerCase() !== name.toLowerCase() && (await formerNames()).includes(owner.toLowerCase())) {
+    // the same Last.fm account under its new name: everything here is still theirs
+    await setMeta('syncedUser', name);
+    return;
+  }
   if (wasDemo || (owner && owner.toLowerCase() !== name.toLowerCase())) {
     await scrobbleStore.clear();
     await db.meta.clear();
