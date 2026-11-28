@@ -4,6 +4,8 @@ import type { StoredScrobble } from './types';
  * Tidying the raw history before stats are built (the stored history stays exactly as Last.fm has
  * it, so edit checks keep comparing like with like):
  *  - names some scrobblers send with escapes left in ("Soda & Syrup", "&amp;")
+ *  - one name written with different capitals ("London" / "LONDON"), joined under the spelling
+ *    played most
  *  - batch-scrobbled plays: runs of scrobbles seconds apart, which aren't listens (songs skipped
  *    through, or a whole playlist sent at once by an import or scrobbling tool)
  */
@@ -47,6 +49,108 @@ export function decodeNames(rows: StoredScrobble[], found?: Garbled[]): StoredSc
   }
   return out ?? rows;
 }
+
+/**
+ * Names that differ only in capitals ("London" / "LONDON") are one artist, album or song: Last.fm
+ * treats them as the same, and won't let you edit just the capitals. Every play gets the spelling
+ * played most (the newest one on a tie), so stats, Clean up and History all show that one. Plays
+ * that change are marked as merged, so History can still show what Last.fm has. Expects rows
+ * sorted by time.
+ */
+export function unifyCasing(rows: StoredScrobble[]): StoredScrobble[] {
+  // Every album and song name, per artist spelling. One lookup per play, mostly skipped: plays in
+  // a row are usually by the same artist.
+  const byArtist = new Map<string, { al: Set<string>; tr: Set<string> }>();
+  let names: { al: Set<string>; tr: Set<string> } | undefined;
+  let prevArtist: string | undefined;
+  for (const r of rows) {
+    if (r.ar !== prevArtist || !names) {
+      names = byArtist.get(r.ar);
+      if (!names) byArtist.set(r.ar, (names = { al: new Set(), tr: new Set() }));
+      prevArtist = r.ar;
+    }
+    names.al.add(r.al);
+    names.tr.add(r.tr);
+  }
+
+  // Per artist (ignoring capitals): which of its names come in more than one spelling. The same
+  // name by two different artists ("Wake Up" / "wake up") is two songs, and isn't touched. Usually
+  // nothing clashes, and that's the end of it.
+  const clashing = (all: Iterable<string>) => {
+    const byLower = new Map<string, string>();
+    const out = new Set<string>();
+    for (const n of all) {
+      const k = n.toLowerCase();
+      const other = byLower.get(k);
+      if (other === undefined) byLower.set(k, n);
+      else out.add(n).add(other);
+    }
+    return out;
+  };
+  const artistSpellings = new Map<string, string[]>();
+  for (const ar of byArtist.keys()) {
+    const k = ar.toLowerCase();
+    const list = artistSpellings.get(k);
+    if (list) list.push(ar);
+    else artistSpellings.set(k, [ar]);
+  }
+  type Clash = { artist: boolean; al: Set<string>; tr: Set<string> };
+  const clashes = new Map<string, Clash>(); // by artist spelling
+  for (const spellings of artistSpellings.values()) {
+    const al = clashing(spellings.flatMap((s) => [...byArtist.get(s)!.al]));
+    const tr = clashing(spellings.flatMap((s) => [...byArtist.get(s)!.tr]));
+    if (spellings.length < 2 && !al.size && !tr.size) continue;
+    const c = { artist: spellings.length > 1, al, tr };
+    for (const s of spellings) clashes.set(s, c);
+  }
+  if (!clashes.size) return rows;
+
+  // The spelling played most (newest on a tie) for each clashing artist, album and song.
+  const keyOf = (r: StoredScrobble, field: 'ar' | 'al' | 'tr') => (field === 'ar' ? r.ar.toLowerCase() : `${r.ar.toLowerCase()}\u0000${r[field].toLowerCase()}`);
+  const isClash = (c: Clash, r: StoredScrobble, field: 'ar' | 'al' | 'tr') => (field === 'ar' ? c.artist : c[field].has(r[field]));
+  const tally = new Map<string, Map<string, { plays: number; last: number }>>();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const c = clashes.get(r.ar);
+    if (!c) continue;
+    for (const field of ['ar', 'al', 'tr'] as const) {
+      if (!isClash(c, r, field)) continue;
+      const k = `${field}\u0000${keyOf(r, field)}`;
+      let spellings = tally.get(k);
+      if (!spellings) tally.set(k, (spellings = new Map()));
+      const x = spellings.get(r[field]);
+      if (x) {
+        x.plays++;
+        x.last = i;
+      } else spellings.set(r[field], { plays: 1, last: i });
+    }
+  }
+  const pick = new Map<string, string>();
+  for (const [k, spellings] of tally) {
+    let best = '';
+    let top = { plays: -1, last: -1 };
+    for (const [name, x] of spellings) if (x.plays > top.plays || (x.plays === top.plays && x.last > top.last)) [best, top] = [name, x];
+    pick.set(k, best);
+  }
+
+  let out: StoredScrobble[] | null = null;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const c = clashes.get(r.ar);
+    if (!c) continue;
+    const use = (field: 'ar' | 'al' | 'tr') => (isClash(c, r, field) ? (pick.get(`${field}\u0000${keyOf(r, field)}`) ?? r[field]) : r[field]);
+    const ar = use('ar');
+    const al = use('al');
+    const tr = use('tr');
+    if (ar === r.ar && al === r.al && tr === r.tr) continue;
+    out ??= rows.slice();
+    out[i] = { ...r, ar, al, tr, orig: r.orig ?? { ar: r.ar, tr: r.tr, al: r.al, merged: true } };
+  }
+  return out ?? rows;
+}
+
+/** Everything about names, in order: escapes decoded (garbled ones noted in `found`), then capitals joined. */
+export const tidyNames = (rows: StoredScrobble[], found?: Garbled[]) => unifyCasing(decodeNames(rows, found));
 
 export interface BatchRun {
   from: number; // unix seconds

@@ -4,7 +4,7 @@ import { fetchFollowing, fetchHistory, fetchTop, fetchUserInfo, LastfmError, typ
 import { monthKey, pack, unpack } from './scrobbleStore';
 import { buildLibrary, type Library } from './library';
 import { applyFixes, type Fix } from './mismatches';
-import { decodeNames } from './tidy';
+import { tidyNames } from './tidy';
 import { bumpSettings } from './changes';
 import type { StoredScrobble, UserInfo } from './types';
 
@@ -380,7 +380,7 @@ export async function friendLibrary(name: string, fixes: Fix[] | undefined): Pro
   if (!chunks.length) return null;
   const rows: StoredScrobble[] = [];
   for (const c of chunks.sort((a, b) => a.k - b.k)) unpack(c, rows);
-  const lib = buildLibrary(applyFixes(decodeNames(rows), fixes), {});
+  const lib = buildLibrary(applyFixes(tidyNames(rows), fixes), {});
   libs.set(u, { fixes: sig, lib });
   return lib;
 }
