@@ -138,10 +138,10 @@ export function unifyCasing(rows: StoredScrobble[]): StoredScrobble[] {
     const r = rows[i];
     const c = clashes.get(r.ar);
     if (!c) continue;
-    const use = (field: 'ar' | 'al' | 'tr') => (isClash(c, r, field) ? (pick.get(`${field}\u0000${keyOf(r, field)}`) ?? r[field]) : r[field]);
-    const ar = use('ar');
-    const al = use('al');
-    const tr = use('tr');
+    const spelling = (field: 'ar' | 'al' | 'tr') => (isClash(c, r, field) ? (pick.get(`${field}\u0000${keyOf(r, field)}`) ?? r[field]) : r[field]);
+    const ar = spelling('ar');
+    const al = spelling('al');
+    const tr = spelling('tr');
     if (ar === r.ar && al === r.al && tr === r.tr) continue;
     out ??= rows.slice();
     out[i] = { ...r, ar, al, tr, orig: r.orig ?? { ar: r.ar, tr: r.tr, al: r.al, merged: true } };
