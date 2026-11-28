@@ -300,7 +300,7 @@ export async function fetchAlbumTrackCount(artist: string, album: string, apiKey
 /* ---------------- picking up edits made on Last.fm (Pro scrobble editing) ---------------- */
 
 /** All scrobbles in [from, to] (unix seconds, inclusive) straight from Last.fm. */
-async function fetchWindow(user: string, apiKey: string, from: number, to: number): Promise<StoredScrobble[]> {
+export async function fetchWindow(user: string, apiKey: string, from: number, to: number): Promise<StoredScrobble[]> {
   const base = { method: 'user.getrecenttracks', user, limit: 200, from, to };
   const first = await call<RecentResponse>({ ...base, page: 1 }, apiKey);
   const pages = Number(first.recenttracks['@attr']?.totalPages) || 0;
@@ -328,7 +328,11 @@ const sig = (s: StoredScrobble) => `${s.ts}\u0001${s.ar}\u0001${s.tr}\u0001${s.a
  * (renamed artists/songs/albums, deleted scrobbles). Returns whether something changed.
  */
 export async function reconcileWindow(user: string, apiKey: string, from: number, to: number): Promise<boolean> {
-  const remote = await fetchWindow(user, apiKey, from, to);
+  return applyWindow(from, to, await fetchWindow(user, apiKey, from, to));
+}
+
+/** reconcileWindow's second half: replace what's stored for a stretch with what Last.fm sent for it. */
+export async function applyWindow(from: number, to: number, remote: StoredScrobble[]): Promise<boolean> {
   const local = await scrobbleStore.between(from, to);
   // All of the stretch, or most of it, gone at once isn't an edit anyone makes; it's Last.fm answering
   // with empty or partial lists during an outage. Keep what's stored rather than wipe it.

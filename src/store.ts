@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { buildLibrary, type AlbumArtistList, type Library } from './lib/library';
 import { db, getMeta, getStoredUser, setMeta } from './lib/db';
 import { scrobbleStore } from './lib/scrobbleStore';
-import { fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
+import { applyWindow, fetchAlbumArtists, fetchAlbumTrackCount, fetchUserInfo, fetchWindow, monthStart, reconcileWindow, syncScrobbles, type SyncProgress } from './lib/lastfm';
 import { loadImageState, setImageHints } from './lib/images';
 import type { RangeSpec, StoredScrobble, UserInfo } from './lib/types';
 import type { CompareMode } from './lib/range';
@@ -264,6 +264,9 @@ function clearSignedOut(set: (s: Partial<AppState>) => void) {
   set({ notice: null });
 }
 
+/** months an edit check downloads side by side (each is itself up to two requests at once) */
+const EDIT_MONTHS_AT_ONCE = 3;
+
 let checkingSingles = false;
 let checkingEdits = false;
 let manualEditQueued = false;
@@ -450,14 +453,21 @@ export const useApp = create<AppState>((set, get) => ({
         let done = 0;
         if (manual) set({ editCheck: { manual: true, running: true, done, total: months, changed } });
         let budget = manual ? Infinity : 2;
-        while (cursor > firstTs && budget-- > 0) {
-          const from = Math.max(monthStart(cursor - 1), firstTs);
-          const end = cursor - 1;
-          if (await withHistory(() => reconcileWindow(username, apiKey, from, end))) changed++;
-          cursor = from;
-          done++;
-          await setMeta('editCursor', cursor);
-          if (manual) set({ editCheck: { manual: true, running: true, done, total: months, changed } });
+        while (cursor > firstTs && budget > 0) {
+          // A few months at a time: downloaded side by side, then compared and saved one by one, newest
+          // first. Downloading outside the history lock is safe here (unlike the last two weeks): a
+          // sync only ever adds plays newer than the last one stored, never in these months.
+          const batch: { from: number; end: number }[] = [];
+          for (let c = cursor; c > firstTs && batch.length < Math.min(EDIT_MONTHS_AT_ONCE, budget); c = monthStart(c - 1)) batch.push({ from: Math.max(monthStart(c - 1), firstTs), end: c - 1 });
+          budget -= batch.length;
+          const remote = await Promise.all(batch.map((w) => fetchWindow(username, apiKey, w.from, w.end)));
+          for (const [i, w] of batch.entries()) {
+            if (await withHistory(() => applyWindow(w.from, w.end, remote[i]))) changed++;
+            cursor = w.from;
+            done++;
+            await setMeta('editCursor', cursor);
+            if (manual) set({ editCheck: { manual: true, running: true, done, total: months, changed } });
+          }
         }
         if (cursor <= firstTs) {
           await setMeta('editCursor', null);
