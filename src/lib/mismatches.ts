@@ -35,6 +35,12 @@ export interface Variant {
   first: number;
   last: number;
   tags: Tag[];
+  /**
+   * song-albums: other editions of the same album the song was also scrobbled from ("bologna 2 -
+   * Single" next to "bologna 2"). They count as this one here; which edition to keep is up to the
+   * album's own card.
+   */
+  also?: { key: string; name: string; plays: number }[];
 }
 
 export interface Mismatch {
@@ -207,7 +213,9 @@ export function fixesFor(m: Mismatch, keep: number): Fix[] {
   const to = m.variants[keep];
   const base = { g: m.id, at: Date.now(), to: to.name, n: m.kind === 'artist-names' ? '' : `${m.title} · ${m.artist}` };
   return m.variants
-    .filter((v, i) => i !== keep && !(m.kind === 'song-albums' && v.key === to.key))
+    .filter((_, i) => i !== keep)
+    .flatMap((v) => [{ key: v.key, name: v.name }, ...(v.also ?? [])])
+    .filter((v) => !(m.kind === 'song-albums' && v.key === to.key))
     .map((v): Fix => {
       const f = { ...base, from: v.key, fn: v.name };
       switch (m.kind) {
@@ -270,7 +278,7 @@ function make(kind: MismatchKind, key: string, artistKey: string, artist: string
     suggested,
     plays: sum(variants),
     off: sum(variants) - variants[suggested].plays,
-    sig: hash(variants.map((v) => v.key).sort().join('\n')),
+    sig: hash(variants.flatMap((v) => [v.key, ...(v.also ?? []).map((a) => a.key)]).sort().join('\n')),
   };
 }
 
@@ -338,14 +346,33 @@ export function findMismatches(rows: StoredScrobble[]): Mismatch[] {
   const artistName = (ak: string) => artists.get(ak)?.name ?? ak;
   const out: Mismatch[] = [];
 
-  // 1) one song, several albums (or none): "Song - Single", the album, a compilation, no album
+  // 1) one song, several albums (or none): "Song - Single", the album, a compilation, no album.
+  //    Editions of one album ("bologna 2" / "bologna 2 - Single") count as one here: telling those
+  //    apart is the album's own card, so the song isn't listed a second time for it.
   for (const [sk, s] of songs) {
     if (s.albums.size < 2) continue;
-    const named = [...s.albums.keys()].filter(Boolean);
-    // only different editions of one album: that's an album-name mismatch, listed there instead
-    if (named.length === s.albums.size && new Set(named.map((k) => albumBase(k))).size === 1) continue;
+    const editions = new Map<string, { key: string; x: Acc }[]>();
+    for (const [key, x] of s.albums) {
+      const g = key ? `album:${albumBase(x.name)}` : 'none';
+      const list = editions.get(g);
+      if (list) list.push({ key, x });
+      else editions.set(g, [{ key, x }]);
+    }
+    if (editions.size < 2) continue;
     const [ak, tk] = sk.split('\0');
-    const variants = [...s.albums].map(([key, x]): Variant => ({ name: x.name, key, plays: x.plays, first: x.first, last: x.last, tags: albumTags(x.name, s.name) }));
+    const variants = [...editions.values()].map((eds): Variant => {
+      eds.sort((a, b) => b.x.plays - a.x.plays);
+      const [top, ...rest] = eds;
+      return {
+        name: top.x.name,
+        key: top.key,
+        plays: eds.reduce((n, e) => n + e.x.plays, 0),
+        first: Math.min(...eds.map((e) => e.x.first)),
+        last: Math.max(...eds.map((e) => e.x.last)),
+        tags: albumTags(top.x.name, s.name),
+        ...(rest.length ? { also: rest.map((e) => ({ key: e.key, name: e.x.name, plays: e.x.plays })) } : {}),
+      };
+    });
     out.push(make('song-albums', sk, ak, artistName(ak), s.name, variants, albumScore, tk));
   }
 
@@ -452,7 +479,7 @@ export function mismatchesFor(list: Mismatch[], kind: 'artist' | 'album' | 'trac
 export function matchesSearch(m: Mismatch, needle: string) {
   if (!needle) return true;
   if (m.title.toLowerCase().includes(needle) || m.artist.toLowerCase().includes(needle)) return true;
-  return m.variants.some((v) => v.name.toLowerCase().includes(needle));
+  return m.variants.some((v) => v.name.toLowerCase().includes(needle) || v.also?.some((a) => a.name.toLowerCase().includes(needle)));
 }
 
 /** A page in your Last.fm library, where Last.fm Pro lets you edit those scrobbles. */

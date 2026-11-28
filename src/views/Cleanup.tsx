@@ -291,6 +291,10 @@ function MismatchCard({ m, lastfmUser, busy, onMerge, onFine }: { m: Mismatch; l
                   </span>
                 ))}
               {i === m.suggested && <span className="mm-tag suggested">suggested</span>}
+              {v.also && (
+                // other editions of this album: counted with it here, sorted out on the album's own card
+                <span className="mm-also muted small">also as {v.also.map((x) => `“${x.name}”`).join(', ')}</span>
+              )}
             </span>
             <span className="mm-var-meta muted small">
               {plural(v.plays, 'play')} · {yearSpan(v)}

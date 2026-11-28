@@ -4150,6 +4150,9 @@ kbd {
   vertical-align: 1px;
   white-space: nowrap;
 }
+.mm-also {
+  display: block;
+}
 /* what sets look-alike spellings apart: the characters, and the kind of difference */
 .mm-diff {
   background: color-mix(in srgb, var(--warn) 30%, transparent);
