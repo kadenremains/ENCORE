@@ -5,6 +5,7 @@ import { EntityImg, fmtNum } from '../render/primitives';
 import { entityPath, routePath } from '../router';
 import { KIND_LABEL, TAG_LABEL, isObviousSingle, lastfmLibraryUrl, matchesSearch, mismatchesFor, openMismatches, type Fix, type Mismatch, type MismatchKind, type Variant } from '../lib/mismatches';
 import type { EntityKind } from '../lib/types';
+import { nameDiff, type NameDiff } from '../lib/nameDiff';
 
 const yearSpan = (v: Variant) => {
   const a = new Date(v.first * 1000).getFullYear();
@@ -203,9 +204,40 @@ function BatchNote() {
   );
 }
 
+/** A name with the characters that differ from its look-alike highlighted (and gaps where one is missing). */
+function LookAlike({ name, diff }: { name: string; diff: NameDiff | null }) {
+  if (!diff) return <span>{name}</span>;
+  return (
+    <span>
+      {diff.parts.map((p, i) =>
+        'missing' in p ? (
+          <mark key={i} className="mm-diff gap" title={`no ${p.missing} here`} />
+        ) : p.differs ? (
+          <mark key={i} className="mm-diff">
+            {p.text}
+          </mark>
+        ) : (
+          p.text
+        ),
+      )}
+    </span>
+  );
+}
+
 function MismatchCard({ m, lastfmUser, busy, onMerge, onFine }: { m: Mismatch; lastfmUser: string; busy: boolean; onMerge: (keep: number) => void; onFine: () => void }) {
   const [keep, setKeep] = useState(m.suggested);
   const target = m.variants[keep];
+  // near-identical spellings: what sets each apart from the one being kept (for the kept one, from
+  // the first look-alike), so a curly apostrophe or a capital doesn't go unnoticed
+  const diffs = m.variants.map((v, i) => {
+    if (!v.name) return null;
+    if (i !== keep) return target.name ? nameDiff(target.name, v.name) : null;
+    for (const other of m.variants) if (other !== v && other.name) {
+      const d = nameDiff(other.name, v.name);
+      if (d) return d;
+    }
+    return null;
+  });
   const imgKind: EntityKind = m.kind === 'artist-names' ? 'artist' : m.kind === 'album-names' ? 'album' : 'track';
   const what =
     m.kind === 'song-albums'
@@ -245,7 +277,12 @@ function MismatchCard({ m, lastfmUser, busy, onMerge, onFine }: { m: Mismatch; l
           <label key={v.key || '-'} className={`mm-var ${i === keep ? 'keep' : ''}`}>
             <input type="radio" name={m.id} checked={i === keep} onChange={() => setKeep(i)} />
             <span className="mm-var-name">
-              {v.name ? <span>{v.name}</span> : <i className="muted">No album</i>}
+              {v.name ? <LookAlike name={v.name} diff={diffs[i]} /> : <i className="muted">No album</i>}
+              {diffs[i]?.kinds.map((k) => (
+                <span key={k} className="mm-tag diff">
+                  {k}
+                </span>
+              ))}
               {v.tags
                 .filter((t) => t !== 'no-album')
                 .map((t) => (

@@ -13,6 +13,7 @@
   --bar: #aab2bf;
   --grad: linear-gradient(135deg, #f2f4f8, #9aa3b0);
   --sel: #9fb8ff;
+  --warn: #e6c36a;
   --radius: 3px;
   --disp: 'Bebas Neue', Impact, sans-serif;
   --serif: 'Cormorant Garamond', Georgia, serif;
@@ -3223,7 +3224,7 @@ a.hl:hover {
   text-underline-offset: 3px;
 }
 .warn-text {
-  color: #e6c36a;
+  color: var(--warn);
   line-height: 1.45;
 }
 .singles {
@@ -4148,6 +4149,28 @@ kbd {
   color: var(--soft);
   vertical-align: 1px;
   white-space: nowrap;
+}
+/* what sets look-alike spellings apart: the characters, and the kind of difference */
+.mm-diff {
+  background: color-mix(in srgb, var(--warn) 30%, transparent);
+  color: inherit;
+  outline: 1px solid var(--warn);
+  border-radius: 3px;
+  padding: 0 1px;
+  white-space: pre;
+}
+.mm-diff.gap {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  padding: 0;
+  margin: 0 1px;
+  vertical-align: -0.12em;
+  background: var(--warn);
+}
+.mm-tag.diff {
+  border-color: var(--warn);
+  color: var(--warn);
 }
 .mm-tag.suggested {
   border-color: var(--accent-2);
