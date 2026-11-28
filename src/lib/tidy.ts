@@ -5,7 +5,7 @@ import type { StoredScrobble } from './types';
  * it, so edit checks keep comparing like with like):
  *  - names some scrobblers send with escapes left in ("Soda & Syrup", "&amp;")
  *  - one name written with different capitals ("London" / "LONDON"), joined under the spelling
- *    played most
+ *    played most recently
  *  - batch-scrobbled plays: runs of scrobbles seconds apart, which aren't listens (songs skipped
  *    through, or a whole playlist sent at once by an import or scrobbling tool)
  */
@@ -53,7 +53,7 @@ export function decodeNames(rows: StoredScrobble[], found?: Garbled[]): StoredSc
 /**
  * Names that differ only in capitals ("London" / "LONDON") are one artist, album or song: Last.fm
  * treats them as the same, and won't let you edit just the capitals. Every play gets the spelling
- * played most (the newest one on a tie), so stats, Clean up and History all show that one. Plays
+ * played most recently, so stats, Clean up and History all show that one. Plays
  * that change are marked as merged, so History can still show what Last.fm has. Expects rows
  * sorted by time.
  */
@@ -105,32 +105,15 @@ export function unifyCasing(rows: StoredScrobble[]): StoredScrobble[] {
   }
   if (!clashes.size) return rows;
 
-  // The spelling played most (newest on a tie) for each clashing artist, album and song.
+  // The spelling played most recently, for each clashing artist, album and song.
   const keyOf = (r: StoredScrobble, field: 'ar' | 'al' | 'tr') => (field === 'ar' ? r.ar.toLowerCase() : `${r.ar.toLowerCase()}\u0000${r[field].toLowerCase()}`);
   const isClash = (c: Clash, r: StoredScrobble, field: 'ar' | 'al' | 'tr') => (field === 'ar' ? c.artist : c[field].has(r[field]));
-  const tally = new Map<string, Map<string, { plays: number; last: number }>>();
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
+  // (rows are in time order, so the last spelling seen for a name is the newest)
+  const pick = new Map<string, string>();
+  for (const r of rows) {
     const c = clashes.get(r.ar);
     if (!c) continue;
-    for (const field of ['ar', 'al', 'tr'] as const) {
-      if (!isClash(c, r, field)) continue;
-      const k = `${field}\u0000${keyOf(r, field)}`;
-      let spellings = tally.get(k);
-      if (!spellings) tally.set(k, (spellings = new Map()));
-      const x = spellings.get(r[field]);
-      if (x) {
-        x.plays++;
-        x.last = i;
-      } else spellings.set(r[field], { plays: 1, last: i });
-    }
-  }
-  const pick = new Map<string, string>();
-  for (const [k, spellings] of tally) {
-    let best = '';
-    let top = { plays: -1, last: -1 };
-    for (const [name, x] of spellings) if (x.plays > top.plays || (x.plays === top.plays && x.last > top.last)) [best, top] = [name, x];
-    pick.set(k, best);
+    for (const field of ['ar', 'al', 'tr'] as const) if (isClash(c, r, field)) pick.set(`${field}\u0000${keyOf(r, field)}`, r[field]);
   }
 
   let out: StoredScrobble[] | null = null;
